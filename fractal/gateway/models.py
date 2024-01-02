@@ -4,7 +4,6 @@ from fractal_database.models import ReplicatedModel
 
 class Gateway(ReplicatedModel):
     name = models.CharField(max_length=255)
-    primary = models.BooleanField(default=False)
 
 
 class Link(ReplicatedModel):
