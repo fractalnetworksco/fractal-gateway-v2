@@ -1,0 +1,23 @@
+[build-system]
+requires = [ "poetry-core",]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "fractal-gateway"
+version = "0.1.0"
+description = ""
+authors = [ "Justin <jrussel1055@gmail.com>",]
+readme = "README.md"
+packages = [
+ { include = "fractal" }
+]
+
+[tool.fractal]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+django = ">=4.0.0"
+fractal-database = ">=0.0.1"
+
+[tool.poetry.plugins."fractal.plugins"]
+"gateway" = "fractal.gateway.controllers.gateway"
