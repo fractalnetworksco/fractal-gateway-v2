@@ -1,4 +1,4 @@
-from fractal.cli import cli_method
+from clicz import cli_method
 from fractal_database.utils import use_django
 
 
