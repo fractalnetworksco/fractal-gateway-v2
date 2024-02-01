@@ -13,11 +13,19 @@ packages = [
 ]
 
 [tool.fractal]
+namespace = "fractal.gateway"
 
 [tool.poetry.dependencies]
 python = "^3.11"
 django = ">=4.0.0"
 fractal-database = ">=0.0.1"
+djangorestframework = ">=3.14.0"
 
 [tool.poetry.plugins."fractal.plugins"]
 "gateway" = "fractal.gateway.controllers.gateway"
+
+[tool.poetry.plugins."taskiq.plugins"]
+"gateway" = "fractal.gateway.tasks"
+
+[tool.poetry.plugins."fractal.database.app"]
+"fractal.gateway" = "fractal.gateway"
