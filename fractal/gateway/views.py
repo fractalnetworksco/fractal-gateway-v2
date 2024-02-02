@@ -2,10 +2,9 @@ import logging
 from typing import Optional
 
 import requests
-from django.db.models.query import QuerySet
-from fractal.gateway.models import Gateway
-from fractal_database.models import Database
+from fractal.gateway.models import MatrixHomeserver
 from rest_framework import status
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -29,32 +28,37 @@ class WellKnownView(APIView):
         except:
             return None
 
-    def get(self, request):
+    def get(self, request: Request):
         """
         Returns the first available well-known from the configured homeservers
         for the current Database's primary Gateway.
 
         If no well-known is found, 404 is returned.
         """
-        current_db = Database.current_db()
-        gateway = current_db.gateway_set.filter(primary=True)  # type: ignore
-        if not gateway.exists():  # type: ignore
-            return Response({}, status=status.HTTP_404_NOT_FOUND)
+        # get the hostname from the request
+        hostname = request.get_host().split(":")[0]
+        homeservers = MatrixHomeserver.objects.filter(url__contains=hostname).order_by("priority")
+        if not homeservers.exists():
+            return Response(
+                {"err": f"Homeserver {hostname} not found"}, status=status.HTTP_404_NOT_FOUND
+            )
+        primary_homeserver = homeservers[0]
+        homeserver_priority = primary_homeserver.priority
 
-        gateway: Gateway = gateway[0]  # type: ignore
-        homeserver = gateway.primary_homeserver(current_db)
-
+        # which homeserver to use? use the host in the request then find
         # make request to the current Gateway's primary homeserver
-        base_url = self._get_well_known(homeserver.url)
+        base_url = self._get_well_known(primary_homeserver.url)
 
         # if the primary homeserver is unavailable, attempt to find a well-known
         # from all other configured homeservres on the gateway
         if not base_url:
-            logger.info(f"Primary homeserver {homeserver.url} is unavailable")
-            homeservers = gateway.matrixhomeserver_set.exclude(url=homeserver.url)
+            logger.info(f"Primary homeserver {primary_homeserver.url} is unavailable")
+
+            homeservers = homeservers.exclude(url=primary_homeserver.url)
             for homeserver in homeservers:
                 base_url = self._get_well_known(homeserver.url)
                 if base_url:
+                    homeserver_priority = homeserver.priority
                     break
 
             if not base_url:
@@ -63,6 +67,7 @@ class WellKnownView(APIView):
         return Response(
             {
                 "m.homeserver": {"base_url": base_url},
+                "f.homeserver.priority": homeserver_priority,
             },
             status=status.HTTP_200_OK,
         )
