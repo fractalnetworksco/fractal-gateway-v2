@@ -21,7 +21,7 @@ def create_matrix_homeserver_for_default_target(*args, **kwargs) -> None:
     primary_target: "MatrixReplicationTarget" = database.primary_target()  # type: ignore
     homeserver_url = primary_target.homeserver
 
-    gateway = database.gateway_set.all()  # type: ignore
+    gateway = database.gateways.all()  # type: ignore
     if not gateway.exists():  # type: ignore
         logger.info(f"Creating gateway for primary database")
         gateway = Gateway.objects.create(
