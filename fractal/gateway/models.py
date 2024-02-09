@@ -43,7 +43,7 @@ class MatrixHomeserver(ReplicatedModel):
 
 class Domain(ReplicatedModel):
     name = models.CharField(max_length=255)
-    gateway = models.ManyToManyField(Gateway, related_name="domains")
+    gateways = models.ManyToManyField(Gateway, related_name="domains")
 
     def __str__(self) -> str:
         return f"{self.name} (Domain)"
