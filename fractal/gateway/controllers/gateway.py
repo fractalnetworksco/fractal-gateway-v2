@@ -16,7 +16,24 @@ class FractalGatewayController:
 
         gateways = Gateway.objects.all()
         for gateway in gateways:
-            print(gateway.name)
+            print(f'"{gateway.name}"')
+
+    @use_django
+    @cli_method
+    def init(self, **kwargs):
+        """
+        Initializes the current Device as a Gateway.
+        ---
+        """
+        from fractal.gateway.signals import create_matrix_homeserver_for_default_target
+
+        try:
+            create_matrix_homeserver_for_default_target()
+        except Exception as err:
+            print(f"Error initializing Gateway: {err}")
+            exit(1)
+
+        print(f"Successfully initialized current Device as a Gateway")
 
     @use_django
     @cli_method
