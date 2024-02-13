@@ -13,7 +13,7 @@ LINK_DOCKERFILE_PATH = "gateway-link"
 LINK_IMAGE_TAG = "fractal-gateway-link:latest"
 
 
-def check_port_availability(port: int):
+def check_port_availability(port: int) -> None:
     """
     Attempts to connect to a given port on the specified host to infer if the port is in use.
 

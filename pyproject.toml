@@ -24,9 +24,14 @@ sh = ">=2.0.4"
 
 [tool.poetry.plugins."fractal.plugins"]
 "gateway" = "fractal.gateway.controllers.gateway"
+"link" = "fractal.gateway.controllers.link"
 
 [tool.poetry.plugins."taskiq.plugins"]
 "gateway" = "fractal.gateway.tasks"
 
 [tool.poetry.plugins."fractal.database.app"]
 "fractal.gateway" = "fractal.gateway"
+
+[tool.poetry.plugins."taskiq.queues"]
+# queue_name -> queue_class module_path
+"f.gateway" = ""

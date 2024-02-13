@@ -41,17 +41,11 @@ class MatrixHomeserver(ReplicatedModel):
         return super().save(*args, **kwargs)
 
 
-class Domain(ReplicatedModel):
-    name = models.CharField(max_length=255)
-    gateways = models.ManyToManyField(Gateway, related_name="domains")
-
-    def __str__(self) -> str:
-        return f"{self.name} (Domain)"
-
-
 class Link(ReplicatedModel):
-    domain = models.ForeignKey(Domain, on_delete=models.CASCADE)
-    subdomain = models.CharField(max_length=255)
+    id = models.UUIDField(primary_key=True, editable=False)
+    gateways = models.ManyToManyField(Gateway, related_name="links")
+    fqdn = models.CharField(max_length=255)
+    # needs an owner
 
     def __str__(self) -> str:
-        return f"{self.subdomain}.{self.domain} (Link)"
+        return f"{self.fqdn} (Link)"
