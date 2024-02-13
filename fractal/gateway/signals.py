@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from fractal.gateway.models import Domain, Gateway, Link
+from fractal.gateway.models import Gateway, Link
 
 if TYPE_CHECKING:
     from fractal_database_matrix.models import MatrixReplicationTarget
