@@ -11,10 +11,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger("django")
 
 
-def create_matrix_homeserver_for_default_target(*args, **kwargs) -> None:
+def create_gateway_and_homeserver_for_current_db(gateway_name: str, *args, **kwargs) -> Gateway:
     """
-    Ensures that a MatrixHomeserver is created
-    for the configured Database's MatrixReplicationTarget
+    Creates a Gateway and a MatrixHomeserver for the current database's primary
+    ReplicationTarget.
     """
     from fractal.gateway.models import Gateway, MatrixHomeserver
     from fractal_database.models import Database
@@ -28,24 +28,24 @@ def create_matrix_homeserver_for_default_target(*args, **kwargs) -> None:
     gateway = database.gateways.all()  # type: ignore
     if not gateway.exists():  # type: ignore
         logger.info(f"Creating gateway for primary database")
-        gateway = Gateway.objects.create(name=f"{database.name.capitalize()} Gateway")
+        gateway = Gateway.objects.create(name=gateway_name)
         gateway.databases.add(database)
     else:
         gateway = gateway[0]
 
     # get the lowest priority homeserver for the current database
-
     homeserver = database.gateways.filter(homeservers__url=homeserver_url).order_by(
         "homeservers__priority"
     )
     if homeserver.exists():
         logger.info(f"MatrixHomeserver for {homeserver_url} already exists not creating")
-        return
     else:
         MatrixHomeserver.objects.create(
             gateway=gateway, url=homeserver_url, database=database, priority=0
         )
         logger.info(f"Created MatrixHomeserver for {homeserver_url}")
+
+    return gateway
 
 
 @receiver(post_save, sender=Gateway)
