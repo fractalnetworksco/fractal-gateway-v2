@@ -1,8 +1,7 @@
 import logging
 from typing import TYPE_CHECKING
 
-from django.db import transaction
-from django.db.models.signals import m2m_changed, post_save
+from django.db.models.signals import post_save
 from django.dispatch import receiver
 from fractal.gateway.models import Domain, Gateway, Link
 
@@ -71,21 +70,3 @@ def create_link_wireguard(
 ):
     """FIXME"""
     print(f"running create_link_wireguard for {instance}")
-
-
-@receiver(m2m_changed, sender=Gateway.databases.through)
-@receiver(m2m_changed, sender=Domain.gateways.through)
-def replicate_domain_after_m2m_changed(
-    sender: "Domain.gateways.through",
-    instance: "Domain",
-    action: str,
-    reverse: bool,
-    model: "Gateway",
-    pk_set: set,
-    **kwargs,
-):
-    """
-    Ensures that the Gateway or Domain is replicated if their
-    respective m2m relationships have changed.
-    """
-    instance.schedule_replication()
