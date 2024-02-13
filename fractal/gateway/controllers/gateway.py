@@ -1,4 +1,5 @@
 from clicz import cli_method
+from fractal.gateway.exceptions import PortAlreadyAllocatedError
 from fractal.gateway.utils import (
     build_gateway_containers,
     check_port_availability,
@@ -52,13 +53,14 @@ class FractalGatewayController:
             pass
 
         # verify that the Gateway port is available
-        available = check_port_availability(self.HTTP_GATEWAY_PORT)
-        if not available:
-            print(f"Port {self.HTTP_GATEWAY_PORT} is already taken.")
+        try:
+            check_port_availability(self.HTTP_GATEWAY_PORT)
+            check_port_availability(self.HTTPS_GATEWAY_PORT)
+        except PortAlreadyAllocatedError as err:
+            print(f"Can't initialize Gateway: Port {err.port} is already taken.")
             exit(1)
-        available = check_port_availability(self.HTTPS_GATEWAY_PORT)
-        if not available:
-            print(f"Port {self.HTTPS_GATEWAY_PORT} is already taken.")
+        except Exception as err:
+            print(f"Can't initialize Gateway: Failed to verify port availability: {err}")
             exit(1)
 
         try:
@@ -82,7 +84,15 @@ class FractalGatewayController:
         from fractal.gateway.models import Gateway
 
         gateway = Gateway.objects.get(name="Fractal-Gateway")
-        launch_gateway(gateway.name)
+        try:
+            launch_gateway(gateway.name)
+        except PortAlreadyAllocatedError as err:
+            print(f"Failed to launch Gateway. Port {err.port} is already taken.")
+            exit(1)
+        except Exception as err:
+            print(f"Failed to launch Gateway: {err}")
+            exit(1)
+
         print(f"Successfully launched Gateway {gateway.name}")
 
     @use_django
