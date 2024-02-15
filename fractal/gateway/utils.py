@@ -1,11 +1,13 @@
 import os
 import re
+from typing import Optional
 
 import docker
+from docker import DockerClient
 from docker.errors import APIError, NotFound
 from docker.models.containers import Container
 from docker.models.networks import Network
-from fractal.gateway.exceptions import PortAlreadyAllocatedError
+from fractal.gateway.exceptions import GatewayNetworkNotFound, PortAlreadyAllocatedError
 
 GATEWAY_DOCKERFILE_PATH = "gateway"
 GATEWAY_IMAGE_TAG = "fractal-gateway:latest"
@@ -94,3 +96,129 @@ def launch_gateway(name: str) -> Container:
         if port_number:
             raise PortAlreadyAllocatedError(port_number)
         raise err
+
+
+def get_gateway_container(
+    name: str = "fractal-gateway", client: Optional[DockerClient] = None
+) -> Optional[Container]:
+    """
+    Get the container with the specified name from Docker.
+
+    Parameters:
+    - name: String, the name of the container to retrieve.
+    - client: DockerClient, the Docker client to use for the operation. If not provided, will
+        use the default Docker client.
+
+    Returns:
+    - Optional[Container], the container with the specified name, or None if no such container exists.
+    """
+    client = client or docker.from_env()
+    try:
+        return client.containers.get(name)  # type: ignore
+    except NotFound:
+        return None
+
+
+def generate_wireguard_keypair(client: Optional[DockerClient] = None) -> tuple[str, str]:
+    """
+    Generate a WireGuard keypair.
+
+    TODO: Handle generating WireGuard keypairs locally if the environment has WireGuard installed.
+
+    Parameters:
+    - client: DockerClient, the Docker client to use for the operation. If not provided, will
+        use the default Docker client.
+
+    Returns:
+    - tuple[private_key, public_key], a tuple containing the generated private and public keys.
+    """
+    client = client or docker.from_env()
+    command = "bash -c 'wg genkey | tee /dev/stderr | wg pubkey'"
+
+    keypair: bytes = client.containers.run(
+        image="fractal-gateway-link:latest",
+        entrypoint=command,
+        stdout=True,
+        stderr=True,
+        remove=True,
+        detach=False,
+    )  # type: ignore
+
+    private_key, public_key = keypair.decode().strip().split("\n")
+    return private_key, public_key
+
+
+def launch_link(
+    link_fqdn: str,
+    link_pubkey: str,
+    client: Optional[DockerClient] = None,
+):
+    client = client or docker.from_env()
+
+    # get or create gateway network
+    try:
+        network: Network = client.networks.get("fractal-gateway-network")  # type: ignore
+    except NotFound:
+        raise GatewayNetworkNotFound("fractal-gateway-network")
+
+    link_container_name = f"-".join(link_fqdn.split("."[-4:]))
+
+    try:
+        link_container: Container = client.containers.run(
+            image=LINK_IMAGE_TAG,
+            name=link_fqdn,
+            network=network.name,
+            restart_policy={"Name": "unless-stopped"},
+            cap_add=["NET_ADMIN"],
+            labels={"f.gateway.link": "true"},
+            tty=True,
+            detach=True,
+            environment={
+                "LINK_CLIENT_WG_PUBKEY": link_pubkey,
+            },
+            ports={"18521/udp": None},
+            remove=False,
+        )  # type: ignore
+    except APIError as err:
+        container: Container = client.containers.get(link_container_name)  # type: ignore
+        container.remove()
+        port_number = get_port_from_error(err.explanation)  # type: ignore
+        if port_number:
+            raise PortAlreadyAllocatedError(port_number)
+        raise err
+
+    # get port that was assigned by docker
+    link_container.reload()
+    wireguard_port = link_container.attrs["NetworkSettings"]["Ports"]["18521/udp"][0]["HostPort"]  # type: ignore
+
+    link_container.stop()
+    link_container.remove()
+
+    # launch link container but with the port that was assigned by docker
+    try:
+        link_container: Container = client.containers.run(
+            image=LINK_IMAGE_TAG,
+            name=link_container_name,
+            network=network.name,
+            restart_policy={"Name": "unless-stopped"},
+            cap_add=["NET_ADMIN"],
+            labels={"f.gateway.link": "true"},
+            tty=True,
+            detach=True,
+            environment={
+                "LINK_CLIENT_WG_PUBKEY": link_pubkey,
+            },
+            ports={"18521/udp": int(wireguard_port)},
+            remove=False,
+        )  # type: ignore
+    except APIError as err:
+        container: Container = client.containers.get(link_container_name)  # type: ignore
+        container.remove()
+        port_number = get_port_from_error(err.explanation)  # type: ignore
+        if port_number:
+            raise PortAlreadyAllocatedError(port_number)
+        raise err
+
+    # get generated wireguard pubkey from link container
+    command = "bash -c 'cat /etc/wireguard/link0.key | wg pubkey'"
+    wireguard_pubkey = link_container.exec_run(command).output.decode().strip()

@@ -1,3 +1,5 @@
+import asyncio
+from sys import exit
 from typing import Optional
 
 from clicz import cli_method
@@ -26,14 +28,38 @@ class FractalLinkController:
     @cli_method
     def create(self, fqdn: Optional[str] = None, **kwargs):
         """
-        Create a link.
+        Create a link. The created link will be added to all gateways.
         ---
+        Args:
+            fqdn: Fully qualified domain name for the link (i.e. subdomain.mydomain.com).
         """
         from fractal.gateway.models import Gateway, Link
 
         gateways = Gateway.objects.all()
-        for gateway in gateways:
-            print(f'"{gateway.name}"')
+        if not gateways.exists():
+            print(f"Error creating link: Could not find any gateways.")
+            exit(1)
+
+        link = Link.objects.create(fqdn=fqdn)
+        link.gateways.add(*gateways)
+
+        print(f"Successfully created link: {link}")
+        print(
+            f"Added link to the following gateways: {', '.join([str(gateway) for gateway in gateways])}"
+        )
+
+    @use_django
+    @cli_method
+    def up(self, link_fqdn: str, **kwargs):
+        """
+        Bring the link up.
+        ---
+        Args:
+            link_fqdn: Fully qualified domain name for the link (i.e. subdomain.mydomain.com).
+        """
+        from fractal.gateway.tasks import link_up
+
+        asyncio.run(link_up(link_fqdn))
 
 
 Controller = FractalLinkController

@@ -1,3 +1,4 @@
+import uuid
 from typing import TYPE_CHECKING
 
 from django.db import models, transaction
@@ -42,10 +43,10 @@ class MatrixHomeserver(ReplicatedModel):
 
 
 class Link(ReplicatedModel):
-    id = models.UUIDField(primary_key=True, editable=False)
+    id = models.UUIDField(primary_key=True, editable=False, default=uuid.uuid4)
     gateways = models.ManyToManyField(Gateway, related_name="links")
     fqdn = models.CharField(max_length=255)
-    # needs an owner
+    # TODO: needs an owner
 
     def __str__(self) -> str:
         return f"{self.fqdn} (Link)"

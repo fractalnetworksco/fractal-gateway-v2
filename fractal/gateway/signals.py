@@ -48,25 +48,17 @@ def create_gateway_and_homeserver_for_current_db(gateway_name: str, *args, **kwa
     return gateway
 
 
-@receiver(post_save, sender=Gateway)
-def create_gateway_wireguard_network(
-    sender: "Gateway",
-    instance: "Gateway",
-    created: bool,
-    raw: bool,
-    **kwargs,
-):
-    """FIXME"""
-    print(f"running create_gateway_wireguard_network for {instance}")
+# @receiver(post_save, sender=Link)
+# def create_link(
+#     sender: "Link",
+#     instance: "Link",
+#     created: bool,
+#     raw: bool,
+#     **kwargs,
+# ):
+#     """FIXME"""
+#     if raw:
+#         logger.info("Skipping create link signal handler for fixture load")
+#         return
 
-
-@receiver(post_save, sender=Link)
-def create_link_wireguard(
-    sender: "Link",
-    instance: "Link",
-    created: bool,
-    raw: bool,
-    **kwargs,
-):
-    """FIXME"""
-    print(f"running create_link_wireguard for {instance}")
+#     generate_link_compose_snippet(instance.fqdn)
