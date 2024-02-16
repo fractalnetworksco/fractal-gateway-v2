@@ -1,13 +1,17 @@
 import os
 import re
-from typing import Optional
+from typing import Any, Optional
 
 import docker
 from docker import DockerClient
 from docker.errors import APIError, NotFound
 from docker.models.containers import Container
 from docker.models.networks import Network
-from fractal.gateway.exceptions import GatewayNetworkNotFound, PortAlreadyAllocatedError
+from fractal.gateway.exceptions import (
+    GatewayContainerNotFound,
+    GatewayNetworkNotFound,
+    PortAlreadyAllocatedError,
+)
 
 GATEWAY_DOCKERFILE_PATH = "gateway"
 GATEWAY_IMAGE_TAG = "fractal-gateway:latest"
@@ -66,31 +70,32 @@ def get_port_from_error(err_msg: str) -> int:
     return int(match.group(1))
 
 
-def launch_gateway(name: str) -> Container:
+def launch_gateway(container_name: str, labels: dict[str, Any] = {}) -> Container:
     build_gateway_containers()
 
     client = docker.from_env()
 
     # get or create gateway network
+    network_name = "fractal-gateway-network"
     try:
-        network: Network = client.networks.get("fractal-gateway-network")  # type: ignore
+        network: Network = client.networks.get(network_name)  # type: ignore
     except NotFound:
-        network: Network = client.networks.create("fractal-gateway-network", driver="bridge")  # type: ignore
+        network: Network = client.networks.create(network_name, driver="bridge")  # type: ignore
 
     try:
         gateway = client.containers.run(
             image=GATEWAY_IMAGE_TAG,
-            name=name,
+            name=container_name,
             ports={80: 80, 443: 443},
             network=network.name,
             restart_policy={"Name": "always"},
-            labels={"f.gateway": "true"},
+            labels=labels,
             detach=True,
             environment={"NGINX_ENVSUBST_OUTPUT_DIR": "/etc/nginx"},
         )
         return gateway  # type: ignore
     except APIError as err:
-        container: Container = client.containers.get(name)  # type: ignore
+        container: Container = client.containers.get(container_name)  # type: ignore
         container.remove()
         port_number = get_port_from_error(err.explanation)  # type: ignore
         if port_number:
@@ -100,7 +105,7 @@ def launch_gateway(name: str) -> Container:
 
 def get_gateway_container(
     name: str = "fractal-gateway", client: Optional[DockerClient] = None
-) -> Optional[Container]:
+) -> Container:
     """
     Get the container with the specified name from Docker.
 
@@ -110,13 +115,16 @@ def get_gateway_container(
         use the default Docker client.
 
     Returns:
-    - Optional[Container], the container with the specified name, or None if no such container exists.
+    - Container, the container with the specified name
+
+    Raises:
+        GatewayContainerNotFound: If the container with the specified name is not found.
     """
     client = client or docker.from_env()
     try:
         return client.containers.get(name)  # type: ignore
     except NotFound:
-        return None
+        raise GatewayContainerNotFound(name)
 
 
 def generate_wireguard_keypair(client: Optional[DockerClient] = None) -> tuple[str, str]:
@@ -152,7 +160,13 @@ def launch_link(
     link_fqdn: str,
     link_pubkey: str,
     client: Optional[DockerClient] = None,
-):
+) -> tuple[str, str]:
+    """
+    Launches a link container with the specified FQDN and public key.
+
+    Returns:
+    - tuple[wireguard_pubkey, link_address], a tuple containing the generated WireGuard public key and the link's address.
+    """
     client = client or docker.from_env()
 
     # get or create gateway network
@@ -161,7 +175,7 @@ def launch_link(
     except NotFound:
         raise GatewayNetworkNotFound("fractal-gateway-network")
 
-    link_container_name = f"-".join(link_fqdn.split("."[-4:]))
+    link_container_name = "-".join(link_fqdn.split("."[-4:]))
 
     try:
         link_container: Container = client.containers.run(
@@ -222,3 +236,4 @@ def launch_link(
     # get generated wireguard pubkey from link container
     command = "bash -c 'cat /etc/wireguard/link0.key | wg pubkey'"
     wireguard_pubkey = link_container.exec_run(command).output.decode().strip()
+    return wireguard_pubkey, f"{link_fqdn}:{int(wireguard_port)}"

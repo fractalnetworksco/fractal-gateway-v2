@@ -7,6 +7,6 @@ class GatewayConfig(AppConfig):
     name = "fractal.gateway"
 
     # def ready(self):
-    #     from fractal.gateway.signals import create_matrix_homeserver_for_default_target
+    #     from fractal.gateway.signals import create_
 
     #     post_migrate.connect(create_matrix_homeserver_for_default_target, sender=self)

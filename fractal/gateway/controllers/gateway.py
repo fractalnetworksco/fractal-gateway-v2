@@ -1,3 +1,5 @@
+import traceback
+
 from clicz import cli_method
 from fractal.gateway.exceptions import PortAlreadyAllocatedError
 from fractal.gateway.utils import (
@@ -37,12 +39,11 @@ class FractalGatewayController:
         from fractal.gateway.signals import create_gateway_and_homeserver_for_current_db
         from fractal_database.models import Device
 
-        try:
-            Device.current_device()
-        except Device.DoesNotExist:
-            print("No Device found. Please create a Device first.")
-            exit(1)
-
+        # try:
+        #     Device.current_device()
+        # except Device.DoesNotExist:
+        #     print("No Device found. Please create a Device first.")
+        #     exit(1)
         # attempt to fetch gateway. Exit if it already exists
         gateway_name = "fractal-gateway"
         try:
@@ -66,11 +67,12 @@ class FractalGatewayController:
         try:
             gateway = create_gateway_and_homeserver_for_current_db(gateway_name)
         except Exception as err:
-            print(f"Error initializing Gateway: {err}")
+            traceback.print_exc()
+            # print(f"Error initializing Gateway: {err.with_traceback()}")
             exit(1)
 
-        # launch docker container
-        launch_gateway(gateway.name)
+        # launch docker container, pass unique gateway name as label for easy retrieval
+        launch_gateway(gateway_name, labels={"f.gateway": gateway.name})
 
         print(f"Successfully initialized current Device as a Gateway")
 

@@ -2,13 +2,13 @@ import uuid
 from typing import TYPE_CHECKING
 
 from django.db import models, transaction
-from fractal_database.models import Device, ReplicatedModel
+from fractal_database.models import App, ReplicatedModel
 
 if TYPE_CHECKING:
     from fractal.gateway.models import MatrixHomeserver
 
 
-class Gateway(Device):
+class Gateway(App):
     homeservers: "models.QuerySet[MatrixHomeserver]"
     databases = models.ManyToManyField("fractal_database.Database", related_name="gateways")
 

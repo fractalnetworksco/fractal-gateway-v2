@@ -3,7 +3,9 @@ from sys import exit
 from typing import Optional
 
 from clicz import cli_method
+from fractal.gateway.utils import get_gateway_container
 from fractal_database.utils import use_django
+from taskiq.kicker import AsyncKicker
 
 
 class FractalLinkController:
@@ -58,6 +60,15 @@ class FractalLinkController:
             link_fqdn: Fully qualified domain name for the link (i.e. subdomain.mydomain.com).
         """
         from fractal.gateway.tasks import link_up
+
+        gateway = get_gateway_container()
+
+        # get device name for gateway
+
+        async def _link_up(link_fqdn):
+            # link_up.kicker().with_labels({"queue": "device", "device": ""})
+            task = await link_up.kiq(link_fqdn)
+            return await task.wait_result()
 
         asyncio.run(link_up(link_fqdn))
 
