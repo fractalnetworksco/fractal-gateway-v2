@@ -9,7 +9,9 @@ if TYPE_CHECKING:
 
 
 class Gateway(App):
+    links: "models.QuerySet[Link]"
     homeservers: "models.QuerySet[MatrixHomeserver]"
+
     databases = models.ManyToManyField("fractal_database.Database", related_name="gateways")
 
     def __str__(self) -> str:

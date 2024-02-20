@@ -1,8 +1,10 @@
 import os
 import re
+import time
 from typing import Any, Optional
 
 import docker
+import yaml
 from docker import DockerClient
 from docker.errors import APIError, NotFound
 from docker.models.containers import Container
@@ -202,6 +204,8 @@ def launch_link(
         raise err
 
     # get port that was assigned by docker
+    # FIXME: have to sleep a second to allow the port to be assigned for some reason
+    time.sleep(1)
     link_container.reload()
     wireguard_port = link_container.attrs["NetworkSettings"]["Ports"]["18521/udp"][0]["HostPort"]  # type: ignore
 
@@ -237,3 +241,32 @@ def launch_link(
     command = "bash -c 'cat /etc/wireguard/link0.key | wg pubkey'"
     wireguard_pubkey = link_container.exec_run(command).output.decode().strip()
     return wireguard_pubkey, f"{link_fqdn}:{int(wireguard_port)}"
+
+
+def generate_link_compose_snippet(
+    link_config: dict[str, Any], link_fqdn: str, expose: str
+) -> str:
+    """
+    Generate a docker-compose snippet for a link container using the specified link configuration.
+
+    Parameters:
+    - link_config: Dict, the link configuration to use for the snippet. Should contain the following keys:
+        - gateway_link_public_key: String, the WireGuard public key for the link.
+        - link_address: String, the address for the link (i.e. subdomain.mydomain.com:18521).
+        - client_private_key: String, the WireGuard private key for the client.
+
+    Returns:
+    - String, the docker-compose snippet for the link container.
+    """
+    return f"""
+  link:
+    image: fractalnetworks/gateway-client:latest
+    environment:
+      LINK_DOMAIN: {link_fqdn}
+      EXPOSE: {expose}
+      GATEWAY_CLIENT_WG_PRIVKEY: {link_config['client_private_key']}
+      GATEWAY_LINK_WG_PUBKEY: {link_config['gateway_link_public_key']}
+      GATEWAY_ENDPOINT: {link_config['link_address']}
+    cap_add:
+      - NET_ADMIN
+"""
