@@ -240,7 +240,7 @@ def launch_link(
     # get generated wireguard pubkey from link container
     command = "bash -c 'cat /etc/wireguard/link0.key | wg pubkey'"
     wireguard_pubkey = link_container.exec_run(command).output.decode().strip()
-    return wireguard_pubkey, f"{link_fqdn}:{int(wireguard_port)}"
+    return wireguard_pubkey, f"{link_fqdn}:{wireguard_port}"
 
 
 def generate_link_compose_snippet(
@@ -256,7 +256,7 @@ def generate_link_compose_snippet(
         - client_private_key: String, the WireGuard private key for the client.
 
     Returns:
-    - String, the docker-compose snippet for the link container.
+    - str, the docker-compose YAML snippet for the link container.
     """
     return f"""
   link:

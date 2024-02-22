@@ -1,8 +1,8 @@
 import asyncio
 from sys import exit
-from typing import Optional
 
 from clicz import cli_method
+from fractal.cli.fmt import display_data
 from fractal.gateway.utils import generate_link_compose_snippet, get_gateway_container
 from fractal_database.utils import use_django
 from taskiq.kicker import AsyncKicker
@@ -15,16 +15,31 @@ class FractalLinkController:
 
     @use_django
     @cli_method
-    def list(self, **kwargs):
+    def list(self, format: str = "table", **kwargs):
         """
         List all Links.
         ---
+        Args:
+            format: The format to display the data in. Options are "table" or "json". Defaults to "table".
+
         """
         from fractal.gateway.models import Link
 
         links = Link.objects.all()
-        for link in links:
-            print(f'"{link}"')
+        if not links.exists():
+            print("No links found")
+            exit(0)
+
+        # TODO: Include health information when available (link is running)
+        data = [
+            {
+                "fqdn": link.fqdn,
+                "gateways": ", ".join([gateway.name for gateway in link.gateways.all()]),
+            }
+            for link in links
+        ]
+
+        display_data(data, title="Links", format=format)
 
     @use_django
     @cli_method

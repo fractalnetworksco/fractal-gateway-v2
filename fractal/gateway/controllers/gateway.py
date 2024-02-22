@@ -1,12 +1,9 @@
 import traceback
 
 from clicz import cli_method
+from fractal.cli.fmt import display_data
 from fractal.gateway.exceptions import PortAlreadyAllocatedError
-from fractal.gateway.utils import (
-    build_gateway_containers,
-    check_port_availability,
-    launch_gateway,
-)
+from fractal.gateway.utils import check_port_availability, launch_gateway
 from fractal_database.utils import use_django
 
 
@@ -17,16 +14,22 @@ class FractalGatewayController:
 
     @use_django
     @cli_method
-    def list(self, **kwargs):
+    def list(self, format: str = "table", **kwargs):
         """
         List Gateways.
         ---
+        Args:
+            format: The format to display the data in. Options are "table" or "json". Defaults to "table".
         """
         from fractal.gateway.models import Gateway
 
         gateways = Gateway.objects.all()
-        for gateway in gateways:
-            print(f'"{gateway.name}"')
+        if not gateways.exists():
+            print("No gateways found")
+            exit(0)
+
+        data = [{"name": gateway.name} for gateway in gateways]
+        display_data(data, title="Gateways", format=format)
 
     @use_django
     @cli_method
@@ -37,13 +40,7 @@ class FractalGatewayController:
         """
         from fractal.gateway.models import Gateway
         from fractal.gateway.signals import create_gateway_and_homeserver_for_current_db
-        from fractal_database.models import Device
 
-        # try:
-        #     Device.current_device()
-        # except Device.DoesNotExist:
-        #     print("No Device found. Please create a Device first.")
-        #     exit(1)
         # attempt to fetch gateway. Exit if it already exists
         gateway_name = "fractal-gateway"
         try:
@@ -66,15 +63,14 @@ class FractalGatewayController:
 
         try:
             gateway = create_gateway_and_homeserver_for_current_db(gateway_name)
-        except Exception as err:
+        except Exception:
             traceback.print_exc()
-            # print(f"Error initializing Gateway: {err.with_traceback()}")
             exit(1)
 
         # launch docker container, pass unique gateway name as label for easy retrieval
         launch_gateway(gateway_name, labels={"f.gateway": gateway.name})
 
-        print(f"Successfully initialized current Device as a Gateway")
+        print(f"Successfully initialized and launched Gateway: {gateway_name}")
 
     @use_django
     @cli_method
