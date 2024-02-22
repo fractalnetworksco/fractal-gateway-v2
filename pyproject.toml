@@ -32,6 +32,6 @@ sh = ">=2.0.4"
 [tool.poetry.plugins."fractal.database.app"]
 "fractal.gateway" = "fractal.gateway"
 
-[tool.poetry.plugins."taskiq.queues"]
+# [tool.poetry.plugins."taskiq.queues"]
 # queue_name -> queue_class module_path
-"f.gateway" = ""
+# "f.gateway" = ""
