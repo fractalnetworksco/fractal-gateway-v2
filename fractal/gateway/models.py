@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 from django.db import models, transaction
 from fractal_database.models import App, ReplicatedModel
+from fractal_database_matrix.models import MatrixReplicationTarget
 
 if TYPE_CHECKING:
     from fractal.gateway.models import MatrixHomeserver
@@ -52,3 +53,31 @@ class Link(ReplicatedModel):
 
     def __str__(self) -> str:
         return f"{self.fqdn} (Link)"
+
+
+class GatewayReplicationTarget(MatrixReplicationTarget):
+    class Meta:
+        proxy = True
+
+    def create_representation_logs(self, instance: ReplicatedModel):
+        """
+        Create the representation logs (tasks) for creating a Matrix space
+        """
+        from fractal_database.models import Database, RepresentationLog
+
+        repr_logs = []
+        repr_module = instance.get_representation_module()
+        if not repr_module:
+            return []
+        repr_type = RepresentationLog._get_repr_instance(repr_module)
+
+        if self == instance:
+            # get primary target for the database so that we can add this created target as a subspace to it
+            # this puts the user's gateway under their root database
+            target: MatrixReplicationTarget = Database.current_db().primary_target()  # type: ignore
+        else:
+            target = self
+
+        print(f"Creating repr {repr_type} logs for instance {instance} on target {target}")
+        repr_logs.extend(repr_type.create_representation_logs(instance, target))
+        return repr_logs

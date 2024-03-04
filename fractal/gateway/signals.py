@@ -17,9 +17,12 @@ def create_gateway_and_homeserver_for_current_db(gateway_name: str, *args, **kwa
     Creates a Gateway and a MatrixHomeserver for the current database's primary
     ReplicationTarget.
     """
-    from fractal.gateway.models import Gateway, MatrixHomeserver
+    from fractal.gateway.models import (
+        Gateway,
+        GatewayReplicationTarget,
+        MatrixHomeserver,
+    )
     from fractal_database.models import AppCatalog, Database, Device
-    from fractal_database_matrix.models import MatrixReplicationTarget
 
     if not transaction.get_connection().in_atomic_block:
         with transaction.atomic():
@@ -38,7 +41,7 @@ def create_gateway_and_homeserver_for_current_db(gateway_name: str, *args, **kwa
 
     gateway = database.gateways.all()  # type: ignore
 
-    # FIXME: should name should indicate who owns the gateway?
+    # FIXME: should name indicate who owns the gateway?
     gateway_name = f"{gateway_name}-{token_hex(4)}"
     if not gateway.exists():  # type: ignore
         logger.info("Creating gateway for primary database")
@@ -52,7 +55,7 @@ def create_gateway_and_homeserver_for_current_db(gateway_name: str, *args, **kwa
         gateway = gateway[0]
 
     # create a representation for the Gateway
-    gateway_target = MatrixReplicationTarget.objects.create(
+    gateway_target = GatewayReplicationTarget.objects.create(
         name=gateway_name,
         homeserver=homeserver_url,
         registration_token=primary_target.registration_token,
