@@ -1,3 +1,4 @@
+import logging
 import uuid
 from typing import TYPE_CHECKING
 
@@ -7,6 +8,8 @@ from fractal_database_matrix.models import MatrixReplicationTarget
 
 if TYPE_CHECKING:
     from fractal.gateway.models import MatrixHomeserver
+
+logger = logging.getLogger(__name__)
 
 
 class Gateway(App):
@@ -78,6 +81,5 @@ class GatewayReplicationTarget(MatrixReplicationTarget):
         else:
             target = self
 
-        print(f"Creating repr {repr_type} logs for instance {instance} on target {target}")
         repr_logs.extend(repr_type.create_representation_logs(instance, target))
         return repr_logs

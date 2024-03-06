@@ -9,7 +9,7 @@ from fractal_database.models import ReplicatedInstanceConfig
 if TYPE_CHECKING:
     from fractal_database_matrix.models import MatrixReplicationTarget
 
-logger = logging.getLogger("django")
+logger = logging.getLogger(__name__)
 
 
 def create_gateway_and_homeserver_for_current_db(gateway_name: str, *args, **kwargs) -> Gateway:
@@ -28,8 +28,6 @@ def create_gateway_and_homeserver_for_current_db(gateway_name: str, *args, **kwa
         with transaction.atomic():
             return create_gateway_and_homeserver_for_current_db(gateway_name, *args, **kwargs)
 
-    logger.info("In create_matrix_homeserver_for_default_target signal handler")
-
     database = Database.current_db()
     primary_target: "MatrixReplicationTarget" = database.primary_target()  # type: ignore
     homeserver_url = primary_target.homeserver
@@ -44,23 +42,43 @@ def create_gateway_and_homeserver_for_current_db(gateway_name: str, *args, **kwa
     # FIXME: should name indicate who owns the gateway?
     gateway_name = f"{gateway_name}-{token_hex(4)}"
     if not gateway.exists():  # type: ignore
-        logger.info("Creating gateway for primary database")
+        logger.info("Creating gateway %s for database %s" % (gateway_name, database))
 
         gateway = Gateway.objects.create(
             name=gateway_name, app_instance_id=gateway_name, metadata=fractal_catalog
         )
+        logger.info("Adding gateway %s to current database %s" % (gateway, database))
         gateway.databases.add(database)
+        logger.info("Adding current device %s to gateway %s" % (current_device, gateway))
         gateway.devices.add(current_device)
     else:
         gateway = gateway[0]
 
     # create a representation for the Gateway
+    try:
+        gateway_target = GatewayReplicationTarget.objects.get(
+            name=gateway_name,
+            homeserver=homeserver_url,
+            registration_token=primary_target.registration_token,
+        )
+        logger.info("GatewayReplicationTarget for %s already exists" % gateway_name)
+        return gateway
+    except GatewayReplicationTarget.DoesNotExist:
+        pass
+
+    logger.info("Creating GatewayReplicationTarget for %s" % gateway_name)
     gateway_target = GatewayReplicationTarget.objects.create(
         name=gateway_name,
         homeserver=homeserver_url,
         registration_token=primary_target.registration_token,
     )
+
+    # get matrix creds for the current device from the primary target
     device_creds = primary_target.matrixcredentials_set.get(device=current_device)
+    logger.info(
+        "Adding current device (%s) MatrixCredentials to the created GatewayReplicationTarget"
+        % current_device
+    )
     gateway_target.matrixcredentials_set.add(device_creds)
 
     instance_config = ReplicatedInstanceConfig.objects.create(instance=gateway)
@@ -72,11 +90,11 @@ def create_gateway_and_homeserver_for_current_db(gateway_name: str, *args, **kwa
         "homeservers__priority"
     )
     if homeserver.exists():
-        logger.info(f"MatrixHomeserver for {homeserver_url} already exists not creating")
+        logger.warning("MatrixHomeserver for %s already exists. Not creating" % homeserver_url)
     else:
         MatrixHomeserver.objects.create(
             gateway=gateway, url=homeserver_url, database=database, priority=0
         )
-        logger.info(f"Created MatrixHomeserver for {homeserver_url}")
+        logger.info("Successfully created MatrixHomeserver for %s" % homeserver_url)
 
     return gateway
