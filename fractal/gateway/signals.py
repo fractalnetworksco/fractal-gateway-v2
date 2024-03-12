@@ -80,9 +80,7 @@ def create_gateway_and_homeserver_for_current_db(gateway_name: str, *args, **kwa
         % current_device
     )
     gateway_target.matrixcredentials_set.add(device_creds)
-
-    instance_config = ReplicatedInstanceConfig.objects.create(instance=gateway)
-    gateway_target.instances.add(instance_config)
+    gateway_target.add_instance(gateway)
     gateway.schedule_replication()
 
     # get the lowest priority homeserver for the current database
