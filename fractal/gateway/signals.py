@@ -45,7 +45,10 @@ def create_gateway_and_homeserver_for_current_db(gateway_name: str, *args, **kwa
         logger.info("Creating gateway %s for database %s" % (gateway_name, database))
 
         gateway = Gateway.objects.create(
-            name=gateway_name, app_instance_id=gateway_name, metadata=fractal_catalog
+            name=gateway_name,
+            app_instance_id=gateway_name,
+            metadata=fractal_catalog,
+            database=database,
         )
         logger.info("Adding gateway %s to current database %s" % (gateway, database))
         gateway.databases.add(database)
@@ -81,7 +84,6 @@ def create_gateway_and_homeserver_for_current_db(gateway_name: str, *args, **kwa
     )
     gateway_target.matrixcredentials_set.add(device_creds)
     gateway_target.add_instance(gateway)
-    gateway.schedule_replication()
 
     # get the lowest priority homeserver for the current database
     homeserver = database.gateways.filter(homeservers__url=homeserver_url).order_by(
