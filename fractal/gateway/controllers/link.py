@@ -65,6 +65,7 @@ class FractalLinkController:
         print(
             f"Added link to the following gateways: {', '.join([str(gateway) for gateway in gateways])}"
         )
+        return link
 
     @use_django
     @cli_method
