@@ -61,25 +61,3 @@ class Link(ReplicatedModel):
 class GatewayReplicationTarget(MatrixReplicationTarget):
     class Meta:
         proxy = True
-
-    def create_representation_logs(self, instance: ReplicatedModel):
-        """
-        Create the representation logs (tasks) for creating a Matrix space
-        """
-        from fractal_database.models import Database, RepresentationLog
-        from fractal_database_matrix.representations import MatrixExistingSubSpace
-
-        repr_logs = []
-        repr_module = instance.get_representation_module()
-        if not repr_module:
-            return []
-        repr_type = RepresentationLog._get_repr_instance(repr_module)
-        repr_logs.extend(repr_type.create_representation_logs(instance, self))
-
-        # get primary target for the database so that we can add this created target as a subspace to it
-        # this puts the user's gateway under their root database
-        target: MatrixReplicationTarget = Database.current_db().primary_target()  # type: ignore
-
-        repr_logs.extend(MatrixExistingSubSpace.create_representation_logs(instance, target))
-
-        return repr_logs
