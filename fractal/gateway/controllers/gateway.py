@@ -4,6 +4,9 @@ from clicz import cli_method
 from fractal.cli.fmt import display_data
 from fractal.gateway.exceptions import PortAlreadyAllocatedError
 from fractal.gateway.utils import check_port_availability, launch_gateway
+from fractal_database.controllers.fractal_database_controller import (
+    FractalDatabaseController,
+)
 from fractal_database.utils import use_django
 
 
@@ -32,16 +35,10 @@ class FractalGatewayController:
         display_data(data, title="Gateways", format=format)
 
     @use_django
-    @cli_method
-    def init(self, **kwargs):
-        """
-        Initializes the current Device as a Gateway.
-        ---
-        """
+    def _init(self, **kwargs):
         from fractal.gateway.models import Gateway
         from fractal.gateway.signals import create_gateway_and_homeserver_for_current_db
 
-        # attempt to fetch gateway. Exit if it already exists
         gateway_name = "fractal-gateway"
         try:
             Gateway.objects.get(name=gateway_name)
@@ -72,6 +69,18 @@ class FractalGatewayController:
 
         print(f"Successfully initialized and launched Gateway: {gateway_name}")
 
+    @cli_method
+    def init(self):
+        """
+        Initializes the current Device as a Gateway.
+        ---
+        """
+        # attempt to fetch gateway. Exit if it already exists
+        fdb_controller = FractalDatabaseController()
+        fdb_controller.init(project_name="fractal_gateway", quiet=True, exist_ok=True)
+
+        self._init()  # type: ignore
+
     @use_django
     @cli_method
     def launch(self, **kwargs):
@@ -81,7 +90,7 @@ class FractalGatewayController:
         """
         from fractal.gateway.models import Gateway
 
-        gateway = Gateway.objects.get(name="Fractal-Gateway")
+        gateway = Gateway.objects.get(name="fractal-gateway")
         try:
             launch_gateway(gateway.name)
         except PortAlreadyAllocatedError as err:

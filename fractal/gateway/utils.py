@@ -179,6 +179,8 @@ def launch_link(
 
     link_container_name = "-".join(link_fqdn.split("."[-4:]))
 
+    # FIXME
+
     try:
         link_container: Container = client.containers.run(
             image=LINK_IMAGE_TAG,
@@ -258,6 +260,21 @@ def generate_link_compose_snippet(
     Returns:
     - str, the docker-compose YAML snippet for the link container.
     """
+    if "localhost" in link_fqdn:
+        return f"""
+  link:
+    image: fractalnetworks/gateway-client:latest
+    environment:
+      LINK_DOMAIN: {link_fqdn}
+      EXPOSE: {expose}
+      GATEWAY_CLIENT_WG_PRIVKEY: {link_config['client_private_key']}
+      GATEWAY_LINK_WG_PUBKEY: {link_config['gateway_link_public_key']}
+      GATEWAY_ENDPOINT: {link_config['link_address']}
+      TLS_INTERNAL: true
+    cap_add:
+      - NET_ADMIN
+"""
+
     return f"""
   link:
     image: fractalnetworks/gateway-client:latest

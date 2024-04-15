@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from django.db import transaction
 from fractal.gateway.models import Gateway
-from fractal_database.models import ReplicatedInstanceConfig
+from fractal_database.models import AppCatalog, Database, Device, DummyReplicationTarget
 
 if TYPE_CHECKING:
     from fractal_database_matrix.models import MatrixReplicationTarget
@@ -22,15 +22,12 @@ def create_gateway_and_homeserver_for_current_db(gateway_name: str, *args, **kwa
         GatewayReplicationTarget,
         MatrixHomeserver,
     )
-    from fractal_database.models import AppCatalog, Database, Device
 
     if not transaction.get_connection().in_atomic_block:
         with transaction.atomic():
             return create_gateway_and_homeserver_for_current_db(gateway_name, *args, **kwargs)
 
     database = Database.current_db()
-    primary_target: "MatrixReplicationTarget" = database.primary_target()  # type: ignore
-    homeserver_url = primary_target.homeserver
     current_device = Device.current_device()
     try:
         fractal_catalog = AppCatalog.objects.get(name="fractal")
@@ -58,6 +55,25 @@ def create_gateway_and_homeserver_for_current_db(gateway_name: str, *args, **kwa
         gateway = gateway[0]
 
     # create a representation for the Gateway
+    primary_target: "MatrixReplicationTarget" = database.primary_target()  # type: ignore
+    if not primary_target:
+        logger.warning(
+            "Database %s does not have a primary target. Gateway will not attempt to create its representation"
+            % database
+        )
+        DummyReplicationTarget.objects.get_or_create(
+            name=f"dummy-{gateway.name}",
+            database=database,
+            primary=False,
+            defaults={
+                "name": f"dummy-{gateway.name}",
+                "database": database,
+                "primary": False,
+            },
+        )
+        return gateway
+
+    homeserver_url = primary_target.homeserver
     try:
         gateway_target = GatewayReplicationTarget.objects.get(
             name=gateway_name,
