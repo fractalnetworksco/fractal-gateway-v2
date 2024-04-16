@@ -1,5 +1,7 @@
+import json
 import traceback
 
+import sh
 from clicz import cli_method
 from fractal.cli.fmt import display_data
 from fractal.gateway.exceptions import PortAlreadyAllocatedError
@@ -14,6 +16,40 @@ class FractalGatewayController:
     PLUGIN_NAME = "gateway"
     HTTP_GATEWAY_PORT = 80
     HTTPS_GATEWAY_PORT = 443
+
+    @use_django
+    @cli_method
+    def export(
+        self, gateway_name: str = "fractal-gateway", format: str = "json", silent=False, **kwargs
+    ):
+        """
+        ---
+        Args:
+            gateway_name: The name of the Gateway to export. Defaults to "fractal-gateway".
+            format: The format to export the Gateway in. Options are "json" or "python". Defaults to "json".
+            silent: If True, the output will not be printed to stdout. Defaults to False.
+        """
+        from fractal.gateway.models import Gateway
+
+        try:
+            gateway = Gateway.objects.get(name__icontains=gateway_name)
+        except Gateway.DoesNotExist:
+            print(f"Gateway {gateway_name} does not exist.")
+            exit(1)
+
+        match format:
+            case "json":
+                gateway_fixture = gateway.to_fixture(json=True)
+            case "python":
+                gateway_fixture = gateway.to_fixture()
+            case _:
+                print(f"Invalid format: {format}")
+                exit(1)
+
+        if not silent:
+            print(gateway_fixture)
+
+        return gateway_fixture
 
     @use_django
     @cli_method
@@ -104,17 +140,28 @@ class FractalGatewayController:
 
     @use_django
     @cli_method
-    def create(self, name: str, **kwargs):
+    def add_database(self, database_name: str, gateway_name: str = "fractal-gateway", **kwargs):
         """
         Create a Gateway.
         ---
         Args:
-            name: Name of the Gateway.
+            database_name: Name of the Database to add
+            gateway_name: Name of the Gateway to add the Database to. Defaults to "fractal-gateway".
         """
+        import IPython
         from fractal.gateway.models import Gateway
+        from fractal_database.models import Database
 
-        g = Gateway.objects.create(name=name)
-        print(f"Successfully created gateway: {g.name}")
+        try:
+            database = Database.objects.get(name=database_name)
+        except Database.DoesNotExist:
+            print(f"Database {database_name} does not exist.")
+            exit(1)
+
+        gateway = Gateway.objects.get(name__icontains=gateway)
+        gateway.databases.add(database)
+
+        print(f"Added Database {database_name} to Gateway {gateway.name}")
 
 
 Controller = FractalGatewayController
