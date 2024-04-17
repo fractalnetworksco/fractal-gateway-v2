@@ -27,13 +27,19 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='Gateway',
             fields=[
-                ('app_ptr', models.OneToOneField(auto_created=True, on_delete=django.db.models.deletion.CASCADE, parent_link=True, primary_key=True, serialize=False, to='fractal_database.app')),
+                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
+                ('date_created', models.DateTimeField(auto_now_add=True)),
+                ('date_modified', models.DateTimeField(auto_now=True)),
+                ('deleted', models.BooleanField(default=False)),
+                ('object_version', models.PositiveIntegerField(default=0)),
+                ('name', models.CharField(max_length=255)),
+                ('ssh_config', models.JSONField(blank=True, default=dict, null=True)),
                 ('databases', models.ManyToManyField(related_name='gateways', to='fractal_database.database')),
+                ('devices', models.ManyToManyField(related_name='gateways', to='fractal_database.device')),
             ],
             options={
                 'abstract': False,
             },
-            bases=('fractal_database.app',),
         ),
         migrations.CreateModel(
             name='Link',

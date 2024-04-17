@@ -12,11 +12,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class Gateway(App):
+class Gateway(ReplicatedModel):
     links: "models.QuerySet[Link]"
     homeservers: "models.QuerySet[MatrixHomeserver]"
 
+    # owner
+    name = models.CharField(max_length=255)
     databases = models.ManyToManyField("fractal_database.Database", related_name="gateways")
+    devices = models.ManyToManyField("fractal_database.Device", related_name="gateways")
+    ssh_config = models.JSONField(default=dict, blank=True, null=True)
 
     def __str__(self) -> str:
         return f"{self.name} (Gateway)"

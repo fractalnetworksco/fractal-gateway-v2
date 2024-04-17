@@ -1,4 +1,5 @@
 import docker
+import sh
 from asgiref.sync import sync_to_async
 from fractal.gateway.utils import (
     generate_wireguard_keypair,
@@ -35,3 +36,12 @@ async def link_up(link_fqdn: str) -> tuple[str, str, str]:
         link_fqdn, client_public_key, client=client
     )
     return (gateway_link_public_key, link_address, client_private_key)
+
+
+def link_up_ssh(ssh_config: dict, link_fqdn: str, expose: str) -> str:
+    """
+    Launches a link container with the specified FQDN and public key using SSH.
+    """
+    return sh.ssh(
+        ssh_config["host"], "-p", ssh_config["port"], "fractal link up", link_fqdn, expose
+    )

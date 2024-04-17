@@ -29,24 +29,15 @@ def create_gateway_and_homeserver_for_current_db(gateway_name: str, *args, **kwa
 
     database = Database.current_db()
     current_device = Device.current_device()
-    try:
-        fractal_catalog = AppCatalog.objects.get(name="fractal")
-    except AppCatalog.DoesNotExist:
-        raise Exception("Fractal AppCatalog not found")
 
-    gateway = database.gateways.all()  # type: ignore
+    gateway = database.gateways.filter(name__icontains=gateway_name)  # type: ignore
 
     # FIXME: should name indicate who owns the gateway?
     gateway_name = f"{gateway_name}-{token_hex(4)}"
     if not gateway.exists():  # type: ignore
         logger.info("Creating gateway %s for database %s" % (gateway_name, database))
 
-        gateway = Gateway.objects.create(
-            name=gateway_name,
-            app_instance_id=gateway_name,
-            metadata=fractal_catalog,
-            database=database,
-        )
+        gateway = Gateway.objects.create(name=gateway_name)
         logger.info("Adding gateway %s to current database %s" % (gateway, database))
         gateway.databases.add(database)
         logger.info("Adding current device %s to gateway %s" % (current_device, gateway))

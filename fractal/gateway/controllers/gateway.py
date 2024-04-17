@@ -1,7 +1,5 @@
-import json
 import traceback
 
-import sh
 from clicz import cli_method
 from fractal.cli.fmt import display_data
 from fractal.gateway.exceptions import PortAlreadyAllocatedError
@@ -20,7 +18,11 @@ class FractalGatewayController:
     @use_django
     @cli_method
     def export(
-        self, gateway_name: str = "fractal-gateway", format: str = "json", silent=False, **kwargs
+        self,
+        gateway_name: str = "fractal-gateway",
+        format: str = "json",
+        silent: bool = False,
+        **kwargs,
     ):
         """
         ---
@@ -39,9 +41,9 @@ class FractalGatewayController:
 
         match format:
             case "json":
-                gateway_fixture = gateway.to_fixture(json=True)
+                gateway_fixture = gateway.to_fixture(json=True, with_relations=True)
             case "python":
-                gateway_fixture = gateway.to_fixture()
+                gateway_fixture = gateway.to_fixture(with_relations=True)
             case _:
                 print(f"Invalid format: {format}")
                 exit(1)
@@ -148,7 +150,6 @@ class FractalGatewayController:
             database_name: Name of the Database to add
             gateway_name: Name of the Gateway to add the Database to. Defaults to "fractal-gateway".
         """
-        import IPython
         from fractal.gateway.models import Gateway
         from fractal_database.models import Database
 
@@ -158,10 +159,10 @@ class FractalGatewayController:
             print(f"Database {database_name} does not exist.")
             exit(1)
 
-        gateway = Gateway.objects.get(name__icontains=gateway)
+        gateway = Gateway.objects.get(name__icontains=gateway_name)
         gateway.databases.add(database)
 
-        print(f"Added Database {database_name} to Gateway {gateway.name}")
+        print(f"Added Database {database.name} to Gateway {gateway.name}")
 
 
 Controller = FractalGatewayController

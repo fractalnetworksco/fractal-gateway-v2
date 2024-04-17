@@ -1,5 +1,6 @@
 import asyncio
 from sys import exit
+from typing import Optional
 
 from clicz import cli_method
 from fractal.cli.fmt import display_data
@@ -43,28 +44,28 @@ class FractalLinkController:
 
     @use_django
     @cli_method
-    def create(self, fqdn: str, **kwargs):
+    def create(self, fqdn: str, gateway_name: str, **kwargs):
         """
-        Create a link. The created link will be added to all gateways.
+        Create a link. The created link will be added to all gateway_names.
         TODO: Handle automatic subdomain creation. For now, requires that subdomain is passed
         ---
         Args:
             fqdn: Fully qualified domain name for the link (i.e. subdomain.mydomain.com).
+            gateway_name: Name of the gateway to create link to.
         """
         from fractal.gateway.models import Gateway, Link
 
-        gateways = Gateway.objects.all()
-        if not gateways.exists():
-            print("Error creating link: Could not find any gateways.")
+        gateway = Gateway.objects.filter(name__icontains=gateway_name)
+        if not gateway.exists():
+            print(f"Error creating link: Could not find gateway {gateway_name}.")
             exit(1)
+        gateway = gateway.first()
 
         link = Link.objects.create(fqdn=fqdn)
-        link.gateways.add(*gateways)
+        link.gateways.add(gateway)
 
         print(f"Successfully created link: {link}")
-        print(
-            f"Added link to the following gateways: {', '.join([str(gateway) for gateway in gateways])}"
-        )
+        print(f"Added link to the following gateway: {gateway.name}")
         return link
 
     @use_django
@@ -109,7 +110,6 @@ class FractalLinkController:
             "link_address": link_address,
             "client_private_key": client_private_key,
         }
-        print("Add the following to your app's docker-compose.yml:")
         print(generate_link_compose_snippet(link_config, link_fqdn, expose))
 
 
