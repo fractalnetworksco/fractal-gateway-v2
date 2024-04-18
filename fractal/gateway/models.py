@@ -55,7 +55,7 @@ class MatrixHomeserver(ReplicatedModel):
 class Link(ReplicatedModel):
     id = models.UUIDField(primary_key=True, editable=False, default=uuid.uuid4)
     gateways = models.ManyToManyField(Gateway, related_name="links")
-    fqdn = models.CharField(max_length=255)
+    fqdn = models.CharField(max_length=255, unique=True)
     # TODO: needs an owner
 
     def __str__(self) -> str:

@@ -44,7 +44,7 @@ class FractalLinkController:
 
     @use_django
     @cli_method
-    def create(self, fqdn: str, gateway_name: str, **kwargs):
+    def create(self, fqdn: str, gateway_name: str, output_as_json=False, **kwargs):
         """
         Create a link. The created link will be added to all gateway_names.
         TODO: Handle automatic subdomain creation. For now, requires that subdomain is passed
@@ -52,6 +52,7 @@ class FractalLinkController:
         Args:
             fqdn: Fully qualified domain name for the link (i.e. subdomain.mydomain.com).
             gateway_name: Name of the gateway to create link to.
+            output_as_json: Whether to output the link as a JSON fixture. Defaults to False.
         """
         from fractal.gateway.models import Gateway, Link
 
@@ -64,19 +65,21 @@ class FractalLinkController:
         link = Link.objects.create(fqdn=fqdn)
         link.gateways.add(gateway)
 
-        print(f"Successfully created link: {link}")
-        print(f"Added link to the following gateway: {gateway.name}")
+        if output_as_json:
+            print(link.to_fixture(json=True))
+        else:
+            print(f"Successfully created link: {link}")
+            print(f"Added link to the following gateway: {gateway.name}")
         return link
 
     @use_django
     @cli_method
-    def up(self, link_fqdn: str, expose: str, **kwargs):
+    def up(self, link_fqdn: str, **kwargs):
         """
         Bring the link up.
         ---
         Args:
             link_fqdn: Fully qualified domain name for the link (i.e. subdomain.mydomain.com).
-            expose: hostname:port to expose the link on (i.e. nginx:80).
         """
         from fractal.gateway.models import Gateway, Link
         from fractal.gateway.tasks import link_up
@@ -110,7 +113,7 @@ class FractalLinkController:
             "link_address": link_address,
             "client_private_key": client_private_key,
         }
-        print(generate_link_compose_snippet(link_config, link_fqdn, expose))
+        print(",".join(link_config.values()))
 
 
 Controller = FractalLinkController

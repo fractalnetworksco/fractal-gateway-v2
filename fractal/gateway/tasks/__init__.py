@@ -23,7 +23,6 @@ async def link_up(link_fqdn: str) -> tuple[str, str, str]:
         client_private_key
     ], contains the generated WireGuard public key, the link's address, and the client's private key.
     """
-    print("Running link up task")
     client = docker.from_env()
 
     # ensure that the gateway container exists
@@ -38,10 +37,16 @@ async def link_up(link_fqdn: str) -> tuple[str, str, str]:
     return (gateway_link_public_key, link_address, client_private_key)
 
 
-def link_up_ssh(ssh_config: dict, link_fqdn: str, expose: str) -> str:
+def link_up_ssh(ssh_config: dict, link_fqdn: str) -> str:
     """
     Launches a link container with the specified FQDN and public key using SSH.
     """
-    return sh.ssh(
-        ssh_config["host"], "-p", ssh_config["port"], "fractal link up", link_fqdn, expose
-    )
+    try:
+        result = sh.ssh(
+            ssh_config["host"], "-p", ssh_config["port"], "fractal link up", link_fqdn
+        ).strip()
+    except Exception as err:
+        print(f"Failed to connect to Gateway:\n{err.stderr.decode()}")
+        exit(1)
+
+    return result.split(",")

@@ -49,7 +49,7 @@ class Migration(migrations.Migration):
                 ('deleted', models.BooleanField(default=False)),
                 ('object_version', models.PositiveIntegerField(default=0)),
                 ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
-                ('fqdn', models.CharField(max_length=255)),
+                ('fqdn', models.CharField(max_length=255, unique=True)),
                 ('gateways', models.ManyToManyField(related_name='links', to='gateway.gateway')),
             ],
             options={
