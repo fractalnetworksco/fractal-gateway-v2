@@ -52,16 +52,6 @@ def create_gateway_and_homeserver_for_current_db(gateway_name: str, *args, **kwa
             "Database %s does not have a primary target. Gateway will not attempt to create its representation"
             % database
         )
-        DummyReplicationTarget.objects.get_or_create(
-            name=f"dummy-{gateway.name}",
-            database=database,
-            primary=False,
-            defaults={
-                "name": f"dummy-{gateway.name}",
-                "database": database,
-                "primary": False,
-            },
-        )
         return gateway
 
     homeserver_url = primary_target.homeserver
