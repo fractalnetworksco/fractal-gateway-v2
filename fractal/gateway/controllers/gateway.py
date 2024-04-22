@@ -208,5 +208,78 @@ class FractalGatewayController:
 
         self._add_via_ssh(gateway, database_name, ssh_port=ssh_port)
 
+    @use_django
+    @cli_method
+    def register(self, gateway_name: str, **kwargs):
+        """
+        Creates a dedicated account for the Gateway on the homeserver you
+        are replicating to.
+        ---
+        Args:
+            gateway_name: Name of the Gateway.
+        """
+        from fractal.gateway.models import Gateway
+        from fractal_database.models import Database
+        from fractal_database.signals import (
+            join_device_to_database,
+            register_device_account,
+        )
+
+        from homeserver.core.models import Group
+
+        # attempt to fetch gateway and its ssh config
+        try:
+            gateway = Gateway.objects.get(name__icontains=gateway_name)
+        except Gateway.DoesNotExist:
+            print(f"Gateway {gateway_name} does not exist.")
+            exit(1)
+
+        if not gateway.ssh_config:
+            print(
+                f"Cannot register gateway: {gateway.name}. It does not have an SSH configuration."
+            )
+            exit(1)
+
+        # fetch the primary target of the current database
+        current_database = Database.current_db()
+        primary_target = current_database.primary_target()
+        if not primary_target:
+            print(
+                f"Cannot register gateway. Your current database {current_database} is not being replicated anywhere."
+            )
+            exit(1)
+
+        # create device credentials for each gateway device if it doesn't already exist
+        for device in gateway.devices.all():
+            device_creds = primary_target.matrixcredentials_set.filter(device=device)
+            if not device_creds.exists():
+                device_creds = register_device_account(
+                    device, device, created=True, raw=False, target=primary_target
+                )
+            else:
+                device_creds = device_creds.first()
+
+            # serialize device credentials and load them into the gateway's database
+            device_fixture = device_creds.to_fixture(json=True, with_relations=True)
+
+            print(f"device fixture: {device_fixture}")
+
+            try:
+                result = sh.ssh(
+                    gateway.ssh_config["host"],
+                    "-p",
+                    str(gateway.ssh_config["port"]),
+                    "fractal db sync -",
+                    _in=device_fixture,
+                )
+            except Exception as err:
+                print(f"Failed to connect to Gateway:\n{err.stderr.decode()}")
+                exit(1)
+
+            # join device to current database and the personal space
+            join_device_to_database(current_database, current_database, [device.pk], action="post_add")
+            personal_space = Group.objects.get(name="Personal Space")
+            join_device_to_database(personal_space, personal_space, [device.pk], action="post_add")
+
 
 Controller = FractalGatewayController
