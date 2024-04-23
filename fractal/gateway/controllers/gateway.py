@@ -76,13 +76,13 @@ class FractalGatewayController:
         display_data(data, title="Gateways", format=format)
 
     @use_django
-    def _init(self, **kwargs):
+    def _init(self, gateway_name: str, **kwargs):
         from fractal.gateway.models import Gateway
         from fractal.gateway.signals import create_gateway_and_homeserver_for_current_db
 
         gateway_name = "fractal-gateway"
         try:
-            Gateway.objects.get(name=gateway_name)
+            Gateway.objects.get(name__icontains=gateway_name)
             print(f"Gateway {gateway_name} already exists.")
             exit(1)
         except Gateway.DoesNotExist:
@@ -106,7 +106,7 @@ class FractalGatewayController:
             exit(1)
 
         # launch docker container, pass unique gateway name as label for easy retrieval
-        launch_gateway(gateway_name, labels={"f.gateway": gateway.name})
+        launch_gateway(gateway_name, labels={"f.gateway": str(gateway.pk)})
 
         print(f"Successfully initialized and launched Gateway: {gateway_name}")
 
@@ -124,7 +124,7 @@ class FractalGatewayController:
             project_name=gateway_name, quiet=True, exist_ok=True, as_instance=True
         )
 
-        self._init()  # type: ignore
+        self._init(gateway_name)  # type: ignore
 
     @use_django
     @cli_method
@@ -135,9 +135,14 @@ class FractalGatewayController:
         """
         from fractal.gateway.models import Gateway
 
-        gateway = Gateway.objects.get(name="fractal-gateway")
         try:
-            launch_gateway(gateway.name)
+            gateway = Gateway.objects.get(name__icontains="fractal-gateway")
+        except Gateway.DoesNotExist:
+            print("Gateway does not exist. Run `fractal gateway init` to get started.")
+            exit(1)
+
+        try:
+            launch_gateway(gateway.name, labels={"f.gateway": str(gateway.pk)})
         except PortAlreadyAllocatedError as err:
             print(f"Failed to launch Gateway. Port {err.port} is already taken.")
             exit(1)
@@ -277,9 +282,13 @@ class FractalGatewayController:
                 exit(1)
 
             # join device to current database and the personal space
-            join_device_to_database(current_database, current_database, [device.pk], action="post_add")
+            join_device_to_database(
+                current_database, current_database, [device.pk], action="post_add"
+            )
             personal_space = Group.objects.get(name="Personal Space")
-            join_device_to_database(personal_space, personal_space, [device.pk], action="post_add")
+            join_device_to_database(
+                personal_space, personal_space, [device.pk], action="post_add"
+            )
 
 
 Controller = FractalGatewayController

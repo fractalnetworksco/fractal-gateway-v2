@@ -1,4 +1,5 @@
 import asyncio
+import sys
 from sys import exit
 from typing import Optional
 
@@ -44,7 +45,9 @@ class FractalLinkController:
 
     @use_django
     @cli_method
-    def create(self, fqdn: str, gateway_name: str, output_as_json=False, **kwargs):
+    def create(
+        self, fqdn: str, gateway_name: str, output_as_json=False, override: bool = False, **kwargs
+    ):
         """
         Create a link. The created link will be added to all gateway_names.
         TODO: Handle automatic subdomain creation. For now, requires that subdomain is passed
@@ -53,16 +56,33 @@ class FractalLinkController:
             fqdn: Fully qualified domain name for the link (i.e. subdomain.mydomain.com).
             gateway_name: Name of the gateway to create link to.
             output_as_json: Whether to output the link as a JSON fixture. Defaults to False.
+            override: Whether to override the link if it already exists. Defaults to False.
         """
         from fractal.gateway.models import Gateway, Link
 
         gateway = Gateway.objects.filter(name__icontains=gateway_name)
         if not gateway.exists():
-            print(f"Error creating link: Could not find gateway {gateway_name}.")
+            print(f"Error creating link: Could not find gateway {gateway_name}.", file=sys.stderr)
             exit(1)
         gateway = gateway.first()
 
-        link = Link.objects.create(fqdn=fqdn)
+        try:
+            link = Link.objects.get(fqdn=fqdn)
+            if not override:
+                print(
+                    f"Error creating link: Link {fqdn} already exists. Specify --override to forcefully override.",
+                    file=sys.stderr,
+                )
+                exit(1)
+        except Link.DoesNotExist:
+            try:
+                link = Link.objects.create(fqdn=fqdn)
+            except Exception as err:
+                print(
+                    f"Error creating link: Could not create link {fqdn}: {err}", file=sys.stderr
+                )
+                exit(1)
+
         link.gateways.add(gateway)
 
         if output_as_json:
@@ -88,14 +108,18 @@ class FractalLinkController:
         gateway_id = gateway.labels.get("f.gateway")
 
         try:
-            gateway = Gateway.objects.get(name=gateway_id)
+            gateway = Gateway.objects.get(pk=gateway_id)
             _ = gateway.links.get(fqdn=link_fqdn)
         except Gateway.DoesNotExist:
-            print(f"Error: Could not find gateway {gateway_id} in your local database")
+            print(
+                f"Error: Could not find gateway {gateway_id} in your local database",
+                file=sys.stderr,
+            )
             exit(1)
         except Link.DoesNotExist:
             print(
-                f"Error: Could not find link with fqdn {link_fqdn} for gateway {gateway_id} in your local database"
+                f"Error: Could not find link with fqdn {link_fqdn} for gateway {gateway_id} in your local database",
+                file=sys.stderr,
             )
             exit(1)
 

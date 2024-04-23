@@ -46,7 +46,7 @@ def link_up_ssh(ssh_config: dict, link_fqdn: str) -> str:
             ssh_config["host"], "-p", ssh_config["port"], "fractal link up", link_fqdn
         ).strip()
     except Exception as err:
-        print(f"Failed to connect to Gateway:\n{err.stderr.decode()}")
-        exit(1)
+        print(f"Error when running link up: {err.stderr.decode()}")
+        raise err
 
     return result.split(",")

@@ -72,10 +72,13 @@ def get_port_from_error(err_msg: str) -> int:
     return int(match.group(1))
 
 
-def launch_gateway(container_name: str, labels: dict[str, Any] = {}) -> Container:
+def launch_gateway(container_name: str, labels: Optional[dict[str, Any]] = None) -> Container:
     build_gateway_containers()
 
     client = docker.from_env()
+
+    if labels is None:
+        labels = {"f.gateway": container_name}
 
     # get or create gateway network
     network_name = "fractal-gateway-network"
@@ -124,7 +127,7 @@ def get_gateway_container(
     """
     client = client or docker.from_env()
     try:
-        return client.containers.get(name)  # type: ignore
+        return client.containers.list(filters={"label": "f.gateway"})[0]  # type: ignore
     except NotFound:
         raise GatewayContainerNotFound(name)
 
