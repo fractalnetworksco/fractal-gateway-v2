@@ -6,7 +6,7 @@ from fractal.gateway.utils import (
     get_gateway_container,
     launch_link,
 )
-from fractal_database_matrix.broker import broker
+from fractal_database_matrix.broker.instance import broker
 
 
 @broker.task(queue="device")
