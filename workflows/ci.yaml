@@ -5,30 +5,33 @@ on:
     branches:
       - '**' # This will run the workflow on every push to any branch
 
-# jobs:
-#   build_and_test:
-#     runs-on: ubuntu-latest
+jobs:
+  build_and_test:
+    runs-on: ubuntu-latest
 
-#     steps:
-#     - name: Checkout repository
-#       uses: actions/checkout@v4
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-#   pypi-publish:
-#     needs: build_and_test
-#     if: github.ref == 'refs/heads/main'
-#     name: upload release to PyPI
-#     runs-on: ubuntu-latest
-#     # Specifying a GitHub environment is optional, but strongly encouraged
-#     environment: release
-#     permissions:
-#       # IMPORTANT: this permission is mandatory for trusted publishing
-#       id-token: write
-#     steps:
-#       - name: Checkout repository
-#         uses: actions/checkout@v4
+    - name: Add tests
+      run: echo "Add tests here"
 
-#       - name: Install Poetry & Build
-#         run: pip install poetry; poetry build
+  # pypi-publish:
+  #   needs: build_and_test
+  #   if: github.ref == 'refs/heads/main'
+  #   name: upload release to PyPI
+  #   runs-on: ubuntu-latest
+  #   # Specifying a GitHub environment is optional, but strongly encouraged
+  #   environment: release
+  #   permissions:
+  #     # IMPORTANT: this permission is mandatory for trusted publishing
+  #     id-token: write
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
 
-#       - name: Publish package distributions to PyPI
-#         uses: pypa/gh-action-pypi-publish@release/v1
+  #     - name: Install Poetry & Build
+  #       run: pip install poetry; poetry build
+
+  #     - name: Publish package distributions to PyPI
+  #       uses: pypa/gh-action-pypi-publish@release/v1
