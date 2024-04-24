@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "fractal-gateway"
-version = "0.1.0"
+version = "0.1.1"
 description = ""
 authors = [ "Justin <jrussel1055@gmail.com>",]
 readme = "README.md"
@@ -20,12 +20,18 @@ python = "^3.11"
 django = ">=4.0.0"
 fractal-database = ">=0.0.1"
 djangorestframework = ">=3.14.0"
+sh = ">=2.0.4"
 
 [tool.poetry.plugins."fractal.plugins"]
 "gateway" = "fractal.gateway.controllers.gateway"
+"link" = "fractal.gateway.controllers.link"
 
 [tool.poetry.plugins."taskiq.plugins"]
 "gateway" = "fractal.gateway.tasks"
 
 [tool.poetry.plugins."fractal.database.app"]
 "fractal.gateway" = "fractal.gateway"
+
+# [tool.poetry.plugins."taskiq.queues"]
+# queue_name -> queue_class module_path
+# "f.gateway" = ""

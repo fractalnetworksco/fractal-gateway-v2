@@ -1,15 +1,26 @@
+import logging
+import uuid
 from typing import TYPE_CHECKING
 
 from django.db import models, transaction
-from fractal_database.models import Device, ReplicatedModel
+from fractal_database.models import App, ReplicatedModel
+from fractal_database_matrix.models import MatrixReplicationTarget
 
 if TYPE_CHECKING:
     from fractal.gateway.models import MatrixHomeserver
 
+logger = logging.getLogger(__name__)
 
-class Gateway(Device):
+
+class Gateway(ReplicatedModel):
+    links: "models.QuerySet[Link]"
     homeservers: "models.QuerySet[MatrixHomeserver]"
+
+    # owner
+    name = models.CharField(max_length=255)
     databases = models.ManyToManyField("fractal_database.Database", related_name="gateways")
+    devices = models.ManyToManyField("fractal_database.Device", related_name="gateways")
+    ssh_config = models.JSONField(default=dict, blank=True, null=True)
 
     def __str__(self) -> str:
         return f"{self.name} (Gateway)"
@@ -41,17 +52,16 @@ class MatrixHomeserver(ReplicatedModel):
         return super().save(*args, **kwargs)
 
 
-class Domain(ReplicatedModel):
-    name = models.CharField(max_length=255)
-    gateway = models.ManyToManyField(Gateway, related_name="domains")
-
-    def __str__(self) -> str:
-        return f"{self.name} (Domain)"
-
-
 class Link(ReplicatedModel):
-    domain = models.ForeignKey(Domain, on_delete=models.CASCADE)
-    subdomain = models.CharField(max_length=255)
+    id = models.UUIDField(primary_key=True, editable=False, default=uuid.uuid4)
+    gateways = models.ManyToManyField(Gateway, related_name="links")
+    fqdn = models.CharField(max_length=255, unique=True)
+    # TODO: needs an owner
 
     def __str__(self) -> str:
-        return f"{self.subdomain}.{self.domain} (Link)"
+        return f"{self.fqdn} (Link)"
+
+
+class GatewayReplicationTarget(MatrixReplicationTarget):
+    class Meta:
+        proxy = True
