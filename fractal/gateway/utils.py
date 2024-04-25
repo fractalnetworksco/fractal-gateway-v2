@@ -16,9 +16,11 @@ from fractal.gateway.exceptions import (
 )
 
 GATEWAY_DOCKERFILE_PATH = "gateway"
-GATEWAY_IMAGE_TAG = "fractal-gateway:latest"
-LINK_DOCKERFILE_PATH = "gateway-link"
-LINK_IMAGE_TAG = "fractal-gateway-link:latest"
+GATEWAY_IMAGE_TAG = "fractalnetworks/fractal-gateway:latest"
+GATEWAY_LINK_DOCKERFILE_PATH = "gateway-link"
+GATEWAY_LINK_IMAGE_TAG = "fractalnetworks/fractal-gateway-link:latest"
+CLIENT_LINK_DOCKERFILE_PATH = "client-link"
+CLIENT_LINK_IMAGE_TAG = "fractalnetworks/client-link:latest"
 
 
 def check_port_availability(port: int) -> None:
@@ -56,13 +58,18 @@ def get_gateway_resource_path(file: str) -> str:
 
 def build_gateway_containers() -> None:
     """
-    Builds the Gateway and Link Docker containers.
+    Builds the Gateway and Gateway Link Docker containers.
     """
     client = docker.from_env()
     client.images.build(
         path=get_gateway_resource_path(GATEWAY_DOCKERFILE_PATH), tag=GATEWAY_IMAGE_TAG
     )
-    client.images.build(path=get_gateway_resource_path(LINK_DOCKERFILE_PATH), tag=LINK_IMAGE_TAG)
+    client.images.build(
+        path=get_gateway_resource_path(GATEWAY_LINK_DOCKERFILE_PATH), tag=GATEWAY_LINK_IMAGE_TAG
+    )
+    client.images.build(
+        path=get_gateway_resource_path(CLIENT_LINK_DOCKERFILE_PATH), tag=CLIENT_LINK_IMAGE_TAG
+    )
 
 
 def get_port_from_error(err_msg: str) -> int:
@@ -149,7 +156,7 @@ def generate_wireguard_keypair(client: Optional[DockerClient] = None) -> tuple[s
     command = "bash -c 'wg genkey | tee /dev/stderr | wg pubkey'"
 
     keypair: bytes = client.containers.run(
-        image="fractal-gateway-link:latest",
+        image=GATEWAY_LINK_IMAGE_TAG,
         entrypoint=command,
         stdout=True,
         stderr=True,
@@ -186,7 +193,7 @@ def launch_link(
 
     try:
         link_container: Container = client.containers.run(
-            image=LINK_IMAGE_TAG,
+            image=GATEWAY_LINK_IMAGE_TAG,
             name=link_fqdn,
             network=network.name,
             restart_policy={"Name": "unless-stopped"},
@@ -220,7 +227,7 @@ def launch_link(
     # launch link container but with the port that was assigned by docker
     try:
         link_container: Container = client.containers.run(
-            image=LINK_IMAGE_TAG,
+            image=GATEWAY_LINK_IMAGE_TAG,
             name=link_container_name,
             network=network.name,
             restart_policy={"Name": "unless-stopped"},
@@ -266,7 +273,7 @@ def generate_link_compose_snippet(
     if "localhost" in link_fqdn:
         return f"""
   link:
-    image: fractalnetworks/gateway-client:latest
+    image: {CLIENT_LINK_IMAGE_TAG}
     environment:
       LINK_DOMAIN: {link_fqdn}
       EXPOSE: {expose}
@@ -280,7 +287,7 @@ def generate_link_compose_snippet(
 
     return f"""
   link:
-    image: fractalnetworks/gateway-client:latest
+    image: {CLIENT_LINK_IMAGE_TAG}
     environment:
       LINK_DOMAIN: {link_fqdn}
       EXPOSE: {expose}

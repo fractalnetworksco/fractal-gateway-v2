@@ -11,4 +11,7 @@ COPY Caddyfile.template /etc/Caddyfile.template
 ENV NOTEWORTHY_ENV $RELEASE_TAG
 ENV LINK_MTU=1380
 
+VOLUME /data
+VOLUME /config
+
 ENTRYPOINT [ "entrypoint.sh" ]
