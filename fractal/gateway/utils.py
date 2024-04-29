@@ -189,12 +189,17 @@ def launch_link(
 
     link_container_name = "-".join(link_fqdn.split("."[-4:]))
 
-    # FIXME
+    try:
+        link_container: Container = client.containers.get(link_container_name)  # type: ignore
+        link_container.stop()
+        link_container.remove()
+    except NotFound:
+        pass
 
     try:
         link_container: Container = client.containers.run(
             image=GATEWAY_LINK_IMAGE_TAG,
-            name=link_fqdn,
+            name=link_container_name,
             network=network.name,
             restart_policy={"Name": "unless-stopped"},
             cap_add=["NET_ADMIN"],
