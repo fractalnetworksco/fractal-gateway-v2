@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 
 import requests
-from fractal.gateway.models import MatrixHomeserver
+from fractal_database_matrix.models import MatrixHomeserver
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response

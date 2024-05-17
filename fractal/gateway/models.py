@@ -1,55 +1,48 @@
 import logging
 import uuid
-from typing import TYPE_CHECKING
 
-from django.db import models, transaction
-from fractal_database.models import App, ReplicatedModel
-from fractal_database_matrix.models import MatrixReplicationTarget
-
-if TYPE_CHECKING:
-    from fractal.gateway.models import MatrixHomeserver
+from django.db import models
+from fractal_database.models import Database, ReplicatedModel
 
 logger = logging.getLogger(__name__)
 
 
-class Gateway(ReplicatedModel):
+class Gateway(Database):
     links: "models.QuerySet[Link]"
-    homeservers: "models.QuerySet[MatrixHomeserver]"
+    # homeservers: "models.QuerySet[MatrixHomeserver]"
 
     # owner
-    name = models.CharField(max_length=255)
     databases = models.ManyToManyField("fractal_database.Database", related_name="gateways")
-    devices = models.ManyToManyField("fractal_database.Device", related_name="gateways")
     ssh_config = models.JSONField(default=dict, blank=True, null=True)
 
     def __str__(self) -> str:
         return f"{self.name} (Gateway)"
 
 
-class MatrixHomeserver(ReplicatedModel):
-    url = models.URLField()
-    name = models.CharField(max_length=255)
-    gateway = models.ForeignKey(Gateway, on_delete=models.CASCADE, related_name="homeservers")
-    priority = models.PositiveIntegerField(default=0, blank=True, null=True)
-    database = models.ForeignKey("fractal_database.Database", on_delete=models.CASCADE)
+# class MatrixHomeserver(ReplicatedModel):
+#     url = models.URLField()
+#     name = models.CharField(max_length=255)
+#     gateway = models.ForeignKey(Gateway, on_delete=models.CASCADE, related_name="homeservers")
+#     priority = models.PositiveIntegerField(default=0, blank=True, null=True)
+#     database = models.ForeignKey("fractal_database.Database", on_delete=models.CASCADE)
 
-    def __str__(self) -> str:
-        return f"{self.name} - {self.url} (MatrixHomeserver)"
+#     def __str__(self) -> str:
+#         return f"{self.name} - {self.url} (MatrixHomeserver)"
 
-    def save(self, *args, **kwargs):
-        # ensure that save is running in a transaction
-        if not transaction.get_connection().in_atomic_block:
-            with transaction.atomic():
-                return self.save(*args, **kwargs)
+#     def save(self, *args, **kwargs):
+#         # ensure that save is running in a transaction
+#         if not transaction.get_connection().in_atomic_block:
+#             with transaction.atomic():
+#                 return self.save(*args, **kwargs)
 
-        # priority is always set to the last priority + 1
-        if self._state.adding:
-            last_priority = MatrixHomeserver.objects.filter(gateway=self.gateway).aggregate(
-                models.Max("priority")
-            )["priority__max"]
-            self.priority = (last_priority or 0) + 1
+#         # priority is always set to the last priority + 1
+#         if self._state.adding:
+#             last_priority = MatrixHomeserver.objects.filter(gateway=self.gateway).aggregate(
+#                 models.Max("priority")
+#             )["priority__max"]
+#             self.priority = (last_priority or 0) + 1
 
-        return super().save(*args, **kwargs)
+#         return super().save(*args, **kwargs)
 
 
 class Link(ReplicatedModel):
@@ -60,8 +53,3 @@ class Link(ReplicatedModel):
 
     def __str__(self) -> str:
         return f"{self.fqdn} (Link)"
-
-
-class GatewayReplicationTarget(MatrixReplicationTarget):
-    class Meta:
-        proxy = True
