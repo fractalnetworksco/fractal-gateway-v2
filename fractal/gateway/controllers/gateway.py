@@ -225,10 +225,6 @@ class FractalGatewayController:
         """
         from fractal.gateway.models import Gateway
         from fractal_database.models import Database
-        from fractal_database.signals import (
-            join_device_to_database,
-            register_device_account,
-        )
 
         from homeserver.core.models import Group
 
@@ -247,25 +243,23 @@ class FractalGatewayController:
 
         # fetch the primary target of the current database
         current_database = Database.current_db()
-        primary_target = current_database.primary_target()
-        if not primary_target:
+        origin_channel = current_database.origin_channel()
+        if not origin_channel:
             print(
                 f"Cannot register gateway. Your current database {current_database} is not being replicated anywhere."
             )
             exit(1)
 
         # create device credentials for each gateway device if it doesn't already exist
-        for device in gateway.devices.all():
-            device_creds = primary_target.matrixcredentials_set.filter(device=device)
-            if not device_creds.exists():
-                device_creds = register_device_account(
-                    device, device, created=True, raw=False, target=primary_target
-                )
-            else:
-                device_creds = device_creds.first()
+        for membership in gateway.device_memberships.all():
+            device = membership.device
+            device.add_membership(current_database)
+            personal_space = Group.objects.get(name="Personal Space")
+            device.add_membership(personal_space)
 
+            membership.refresh_from_db()
             # serialize device credentials and load them into the gateway's database
-            device_fixture = device_creds.to_fixture(json=True, with_relations=True)
+            device_fixture = membership.to_fixture(json=True, with_relations=True)
 
             print(f"device fixture: {device_fixture}")
 
@@ -282,13 +276,12 @@ class FractalGatewayController:
                 exit(1)
 
             # join device to current database and the personal space
-            join_device_to_database(
-                current_database, current_database, [device.pk], action="post_add"
-            )
-            personal_space = Group.objects.get(name="Personal Space")
-            join_device_to_database(
-                personal_space, personal_space, [device.pk], action="post_add"
-            )
+            # join_device_to_database(
+            #     current_database, current_database, [device.pk], action="post_add"
+            # )
+            # join_device_to_database(
+            #     personal_space, personal_space, [device.pk], action="post_add"
+            # )
 
 
 Controller = FractalGatewayController
