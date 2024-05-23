@@ -1,6 +1,8 @@
 import asyncio
 import json
+import sys
 import traceback
+from typing import Optional
 
 import sh
 from clicz import cli_method
@@ -110,14 +112,43 @@ class FractalGatewayController:
 
         print(f"Successfully initialized and launched Gateway: {gateway_name}")
 
+    @use_django
+    def _init_remote(self, ssh_url: str, ssh_port: str, gateway_name: str, **kwargs):
+        from fractal_database.models import Database
+
+        try:
+            result = sh.ssh(ssh_url, "-p", ssh_port, f"fractal gateway init --gateway-name {gateway_name}")  # type: ignore
+        except Exception as err:
+            print(f"Failed to initialize Gateway:\n{err.stderr.decode()}", file=sys.stderr)
+            exit(1)
+
+        print("Loading remote gateway into local database")
+
+        current_database = Database.current_db()
+        return self._add_via_ssh(ssh_url, current_database.name, ssh_port=ssh_port)
+
     @cli_method
-    def init(self, gateway_name: str = "fractal_gateway", **kwargs):
+    def init(
+        self,
+        gateway_name: str = "fractal_gateway",
+        ssh_url: Optional[str] = None,
+        ssh_port: str = "22",
+        **kwargs,
+    ):
         """
-        Initializes the current Device as a Gateway.
+        Initializes the current Device as a Gateway. Can optionally be initialized remotely via SSH.
+        When initializing remotely, the Gateway will be loaded into your current database.
+        NOTE: When initializing remotely, ensure that you are able to SSH into the remote machine.
         ---
         Args:
             gateway_name: The name of the Gateway to initialize. Defaults to "fractal_gateway".
+            ssh_url: The SSH URL of the Gateway. If provided, the Gateway will be initialized remotely, then loaded
+                     into your current database.
+            ssh_port: The SSH port of the Gateway. Defaults to 22.
         """
+        if ssh_url:
+            return self._init_remote(ssh_url, ssh_port, gateway_name)
+
         # attempt to fetch gateway. Exit if it already exists
         fdb_controller = FractalDatabaseController()
         fdb_controller.init(
