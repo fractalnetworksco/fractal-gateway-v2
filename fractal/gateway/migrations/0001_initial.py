@@ -34,7 +34,7 @@ class Migration(migrations.Migration):
                 ('metadata', models.JSONField(default=dict)),
                 ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
                 ('fqdn', models.CharField(max_length=255, unique=True)),
-                ('gateways', models.ManyToManyField(related_name='links', to='fgateway.gateway')),
+                ('gateways', models.ManyToManyField(related_name='links', to='gateway.gateway')),
                 ('service', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='links', to='fractal_database.serviceinstanceconfig')),
             ],
             options={

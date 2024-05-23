@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 class Link(ReplicatedModel):
     id = models.UUIDField(primary_key=True, editable=False, default=uuid.uuid4)
-    gateways = models.ManyToManyField("fgateway.Gateway", related_name="links")
+    gateways = models.ManyToManyField("gateway.Gateway", related_name="links")
     fqdn = models.CharField(max_length=255, unique=True)
     service = models.ForeignKey(
         "fractal_database.ServiceInstanceConfig",
