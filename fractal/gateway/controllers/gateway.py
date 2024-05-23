@@ -197,7 +197,7 @@ class FractalGatewayController:
         try:
             result = sh.ssh(gateway_ssh, "-p", str(ssh_port), "fractal gateway export")
         except Exception as err:
-            print(f"Failed to connect to Gateway:\n{err.stderr.decode()}")
+            print(f"Failed to connect to Gateway:\n{err.stderr.decode()}", file=sys.stderr)
             exit(1)
 
         print("Syncing Gateway into local database")
@@ -211,7 +211,10 @@ class FractalGatewayController:
                 break
         else:
             # should never happen
-            print("Gateway did not return a gateway fixture")
+            print(
+                f"Gateway did not return a gateway fixture:\n{json.dumps(gateway_fixture, indent=4)}",
+                file=sys.stderr,
+            )
             exit(1)
 
         # check to see if the gateway has already been loaded once into the local database
