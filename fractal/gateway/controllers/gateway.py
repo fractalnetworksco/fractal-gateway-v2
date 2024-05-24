@@ -6,6 +6,7 @@ from typing import Optional
 
 import sh
 from clicz import cli_method
+from django.core.serializers import serialize
 from fractal.cli.fmt import display_data
 from fractal.gateway.exceptions import PortAlreadyAllocatedError
 from fractal.gateway.utils import check_port_availability, launch_gateway
@@ -46,11 +47,22 @@ class FractalGatewayController:
 
         match format:
             case "json":
-                gateway_fixture = gateway.to_fixture(json=True, with_relations=True)
+                gateway_fixture = gateway.to_fixture(with_relations=True, queryset=True)
+                # include device memberships in the fixture
+                for membership in gateway.device_memberships.all():
+                    gateway_fixture.extend(
+                        membership.to_fixture(with_relations=True, queryset=True)
+                    )
+                gateway_fixture = serialize("json", gateway_fixture)
             case "python":
-                gateway_fixture = gateway.to_fixture(with_relations=True)
+                gateway_fixture = gateway.to_fixture(with_relations=True, queryset=True)
+                for membership in gateway.device_memberships.all():
+                    gateway_fixture.extend(
+                        membership.to_fixture(with_relations=True, queryset=True)
+                    )
+                gateway_fixture = serialize("python", gateway_fixture)
             case _:
-                print(f"Invalid format: {format}")
+                print(f"Invalid format: {format}", file=sys.stderr)
                 exit(1)
 
         if not silent:
