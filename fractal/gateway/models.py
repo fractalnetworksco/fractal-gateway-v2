@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 import sh
 from asgiref.sync import async_to_sync
 from django.db import models
-from fractal_database.models import Database, ReplicatedModel
+from fractal_database.models import ReplicatedModel, Service
 from fractal_database.replication.tasks import replicate_fixture
 
 from .tasks import link_up
@@ -68,7 +68,7 @@ class Link(ReplicatedModel):
         )
 
 
-class Gateway(Database):
+class Gateway(Service):
     links: models.QuerySet[Link]
     # homeservers: "models.QuerySet[MatrixHomeserver]"
 

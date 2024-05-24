@@ -15,14 +15,14 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='Gateway',
             fields=[
-                ('database_ptr', models.OneToOneField(auto_created=True, on_delete=django.db.models.deletion.CASCADE, parent_link=True, primary_key=True, serialize=False, to='fractal_database.database')),
+                ('service_ptr', models.OneToOneField(auto_created=True, on_delete=django.db.models.deletion.CASCADE, parent_link=True, primary_key=True, serialize=False, to='fractal_database.service')),
                 ('ssh_config', models.JSONField(default=dict)),
                 ('databases', models.ManyToManyField(related_name='gateways', to='fractal_database.database')),
             ],
             options={
                 'abstract': False,
             },
-            bases=('fractal_database.database',),
+            bases=('fractal_database.service',),
         ),
         migrations.CreateModel(
             name='Link',
