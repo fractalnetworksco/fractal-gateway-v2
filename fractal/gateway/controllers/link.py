@@ -103,6 +103,9 @@ class FractalLinkController:
         """
         from fractal.gateway.models import Gateway, Link
         from fractal.gateway.tasks import link_up
+        from fractal.gateway.utils import build_gateway_containers
+
+        build_gateway_containers()
 
         gateway = get_gateway_container()
         gateway_id = gateway.labels.get("f.gateway")

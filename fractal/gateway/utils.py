@@ -1,10 +1,10 @@
+import logging
 import os
 import re
 import time
 from typing import Any, Optional
 
 import docker
-import yaml
 from docker import DockerClient
 from docker.errors import APIError, NotFound
 from docker.models.containers import Container
@@ -22,13 +22,14 @@ GATEWAY_LINK_IMAGE_TAG = "fractalnetworks/fractal-gateway-link:latest"
 CLIENT_LINK_DOCKERFILE_PATH = "client-link"
 CLIENT_LINK_IMAGE_TAG = "fractalnetworks/client-link:latest"
 
+logger = logging.getLogger(__name__)
+
 
 def check_port_availability(port: int) -> None:
     """
     Attempts to connect to a given port on the specified host to infer if the port is in use.
 
     Parameters:
-    - host: String, the hostname or IP address to check the port on. Use 'localhost' or '127.0.0.1' for local checks.
     - port: Integer, the port number to check.
 
     Returns:
@@ -61,11 +62,19 @@ def build_gateway_containers() -> None:
     Builds the Gateway and Gateway Link Docker containers.
     """
     client = docker.from_env()
+    logger.info("Building Docker image %s from %s" % (GATEWAY_IMAGE_TAG, GATEWAY_DOCKERFILE_PATH))
     client.images.build(
         path=get_gateway_resource_path(GATEWAY_DOCKERFILE_PATH), tag=GATEWAY_IMAGE_TAG
     )
+    logger.info(
+        "Building Docker image %s from %s"
+        % (GATEWAY_LINK_IMAGE_TAG, GATEWAY_LINK_DOCKERFILE_PATH)
+    )
     client.images.build(
         path=get_gateway_resource_path(GATEWAY_LINK_DOCKERFILE_PATH), tag=GATEWAY_LINK_IMAGE_TAG
+    )
+    logger.info(
+        "Building Docker image %s from %s" % (CLIENT_LINK_IMAGE_TAG, CLIENT_LINK_DOCKERFILE_PATH)
     )
     client.images.build(
         path=get_gateway_resource_path(CLIENT_LINK_DOCKERFILE_PATH), tag=CLIENT_LINK_IMAGE_TAG
