@@ -1,4 +1,5 @@
 import django.db.models.deletion
+import fractal_database.fields
 import uuid
 from django.db import migrations, models
 
@@ -16,8 +17,8 @@ class Migration(migrations.Migration):
             name='Gateway',
             fields=[
                 ('service_ptr', models.OneToOneField(auto_created=True, on_delete=django.db.models.deletion.CASCADE, parent_link=True, primary_key=True, serialize=False, to='fractal_database.service')),
-                ('ssh_config', models.JSONField(default=dict)),
-                ('databases', models.ManyToManyField(related_name='gateways', to='fractal_database.database')),
+                ('ssh_config', fractal_database.fields.LocalJSONField(blank=True, default=dict, null=True)),
+                ('databases', fractal_database.fields.LocalManyToManyField(blank=True, null=True, related_name='gateways', to='fractal_database.database')),
             ],
             options={
                 'abstract': False,

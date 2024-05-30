@@ -10,6 +10,7 @@ from django.core.serializers import serialize
 from fractal.cli.fmt import display_data
 from fractal.gateway.exceptions import PortAlreadyAllocatedError
 from fractal.gateway.utils import check_port_availability, launch_gateway
+from fractal_database import ssh
 from fractal_database.controllers.fractal_database_controller import (
     FractalDatabaseController,
 )
@@ -47,20 +48,24 @@ class FractalGatewayController:
 
         match format:
             case "json":
-                gateway_fixture = gateway.to_fixture(with_relations=True, queryset=True)
+                gateway_fixture = gateway.to_fixture(with_relations=True, json=True)
+                gateway_fixture = json.loads(gateway_fixture)
+
                 # include device memberships in the fixture
                 for membership in gateway.device_memberships.all():
                     gateway_fixture.extend(
-                        membership.to_fixture(with_relations=True, queryset=True)
+                        json.loads(membership.to_fixture(with_relations=True, json=True))
                     )
-                gateway_fixture = serialize("json", gateway_fixture)
+
+                gateway_fixture = json.dumps(gateway_fixture)
+
             case "python":
                 gateway_fixture = gateway.to_fixture(with_relations=True, queryset=True)
                 for membership in gateway.device_memberships.all():
                     gateway_fixture.extend(
                         membership.to_fixture(with_relations=True, queryset=True)
                     )
-                gateway_fixture = serialize("python", gateway_fixture)
+
             case _:
                 print(f"Invalid format: {format}", file=sys.stderr)
                 exit(1)
@@ -129,7 +134,7 @@ class FractalGatewayController:
         from fractal_database.models import Database
 
         try:
-            result = sh.ssh(ssh_url, "-p", ssh_port, f"fractal gateway init --gateway-name {gateway_name}")  # type: ignore
+            result = ssh(ssh_url, "-p", ssh_port, f"fractal gateway init --gateway-name {gateway_name}")  # type: ignore
         except Exception as err:
             print(f"Failed to initialize Gateway:\n{err.stderr.decode()}", file=sys.stderr)
             exit(1)
@@ -207,7 +212,7 @@ class FractalGatewayController:
             exit(1)
 
         try:
-            result = sh.ssh(gateway_ssh, "-p", str(ssh_port), "fractal gateway export")
+            result = ssh(gateway_ssh, "-p", str(ssh_port), "fractal gateway export")
         except Exception as err:
             print(f"Failed to connect to Gateway:\n{err.stderr.decode()}", file=sys.stderr)
             exit(1)
@@ -310,7 +315,7 @@ class FractalGatewayController:
             print(f"device fixture: {device_fixture}")
 
             try:
-                result = sh.ssh(
+                result = ssh(
                     gateway.ssh_config["host"],
                     "-p",
                     str(gateway.ssh_config["port"]),

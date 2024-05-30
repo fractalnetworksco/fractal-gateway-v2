@@ -2,9 +2,10 @@ import logging
 import uuid
 from typing import TYPE_CHECKING
 
-import sh
 from asgiref.sync import async_to_sync
 from django.db import models
+from fractal_database import ssh
+from fractal_database.fields import LocalJSONField, LocalManyToManyField
 from fractal_database.models import ReplicatedModel, Service
 from fractal_database.replication.tasks import replicate_fixture
 
@@ -35,7 +36,7 @@ class Link(ReplicatedModel):
 
     def _up_via_ssh(self, ssh_config: dict[str, str]) -> tuple[str, str, str]:
         try:
-            result = sh.ssh(
+            result = ssh(
                 ssh_config["host"], "-p", ssh_config["port"], "fractal link up", self.fqdn
             ).strip()
         except Exception as err:
@@ -72,8 +73,8 @@ class Gateway(Service):
     links: models.QuerySet[Link]
     # homeservers: "models.QuerySet[MatrixHomeserver]"
 
-    databases = models.ManyToManyField("fractal_database.Database", related_name="gateways")
-    ssh_config = models.JSONField(default=dict)
+    databases = LocalManyToManyField("fractal_database.Database", related_name="gateways")
+    ssh_config = LocalJSONField(default=dict)
 
     def __str__(self) -> str:
         return f"{self.name} (Gateway)"
@@ -86,8 +87,9 @@ class Gateway(Service):
 
         ssh_host = self.ssh_config["host"]
         ssh_port = self.ssh_config["port"]  # type: ignore
+
         try:
-            result = sh.ssh(
+            result = ssh(
                 ssh_host,
                 "-p",
                 str(ssh_port),
