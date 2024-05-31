@@ -297,6 +297,7 @@ def generate_link_compose_snippet(
       TLS_INTERNAL: true
     cap_add:
       - NET_ADMIN
+    restart: unless-stopped
 """
 
     return f"""
@@ -310,4 +311,5 @@ def generate_link_compose_snippet(
       GATEWAY_ENDPOINT: {link_config['link_address']}
     cap_add:
       - NET_ADMIN
+    restart: unless-stopped
 """

@@ -4,9 +4,9 @@ import sys
 import traceback
 from typing import Optional
 
-import sh
+from asgiref.sync import async_to_sync
 from clicz import cli_method
-from django.core.serializers import serialize
+from django.db import transaction
 from fractal.cli.fmt import display_data
 from fractal.gateway.exceptions import PortAlreadyAllocatedError
 from fractal.gateway.utils import check_port_availability, launch_gateway
@@ -222,9 +222,6 @@ class FractalGatewayController:
         for item in gateway_fixture:
             if item["model"] == "gateway.gateway":
                 gateway_uuid = item["pk"]
-                # FIXME: Gateway should not include any databases in its fixture
-                # (dont want to leak potentially other groups, etc.)
-                # item["fields"]["databases"] = []
                 break
         else:
             # should never happen
@@ -275,9 +272,11 @@ class FractalGatewayController:
             gateway_name: Name of the Gateway.
         """
         from fractal.gateway.models import Gateway
-        from fractal_database.models import Database
-
-        from homeserver.core.models import Group
+        from fractal_database.models import Database, LocalReplicationChannel
+        from fractal_database_matrix.operations import (
+            CreateDeviceSubRoom,
+            RegisterDeviceAccount,
+        )
 
         # attempt to fetch gateway and its ssh config
         try:
@@ -301,38 +300,59 @@ class FractalGatewayController:
             )
             exit(1)
 
+        operations = []
         # create device credentials for each gateway device if it doesn't already exist
+        with transaction.atomic():
+            for membership in gateway.device_memberships.all():
+                device = membership.device
+                for device_membership in device.memberships.all():
+                    for channel in device_membership.database.get_all_replication_channels():
+                        if isinstance(channel, LocalReplicationChannel):
+                            continue
+
+                        # ensure that an account exists for the device on the channel's homeserver
+                        if not device.matrixcredentials_set.filter(
+                            homeserver=channel.homeserver
+                        ).exists():
+                            operations.extend(
+                                RegisterDeviceAccount.create_durable_operations(
+                                    device,
+                                    channel,
+                                )
+                            )
+
+                        # ensure that a sub-room exists for the device in the channel's space
+                        if not device_membership.metadata.get(channel.pk):
+                            operations.extend(
+                                CreateDeviceSubRoom.create_durable_operations(
+                                    device_membership,
+                                    channel,
+                                )
+                            )
+
+        # execute the operations
+        for operation in operations:
+            async_to_sync(operation.execute)()
+
+        # now that the device should be registered with all homeservers,
+        # collect all of the deivce credentials and give them to the gateway
+        fixture = []
         for membership in gateway.device_memberships.all():
-            device = membership.device
-            device.add_membership(current_database)
-            personal_space = Group.objects.get(name="Personal Space")
-            device.add_membership(personal_space)
+            for cred in membership.device.matrixcredentials_set.all():
+                fixture.extend(json.loads(cred.to_fixture(with_relations=True, json=True)))
+        fixture = json.dumps(fixture)
 
-            membership.refresh_from_db()
-            # serialize device credentials and load them into the gateway's database
-            device_fixture = membership.to_fixture(json=True, with_relations=True)
-
-            print(f"device fixture: {device_fixture}")
-
-            try:
-                result = ssh(
-                    gateway.ssh_config["host"],
-                    "-p",
-                    str(gateway.ssh_config["port"]),
-                    "fractal db sync -",
-                    _in=device_fixture,
-                )
-            except Exception as err:
-                print(f"Failed to connect to Gateway:\n{err.stderr.decode()}")
-                exit(1)
-
-            # join device to current database and the personal space
-            # join_device_to_database(
-            #     current_database, current_database, [device.pk], action="post_add"
-            # )
-            # join_device_to_database(
-            #     personal_space, personal_space, [device.pk], action="post_add"
-            # )
+        try:
+            result = ssh(
+                gateway.ssh_config["host"],
+                "-p",
+                str(gateway.ssh_config["port"]),
+                "fractal db sync -",
+                _in=fixture,
+            )
+        except Exception as err:
+            print(f"Failed to connect to Gateway:\n{err.stderr.decode()}", file=sys.stderr)
+            exit(1)
 
 
 Controller = FractalGatewayController
