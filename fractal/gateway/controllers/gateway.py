@@ -340,6 +340,10 @@ class FractalGatewayController:
         for membership in gateway.device_memberships.all():
             for cred in membership.device.matrixcredentials_set.all():
                 fixture.extend(json.loads(cred.to_fixture(with_relations=True, json=True)))
+
+        # serialize replication channels for the gateway
+        for channel in gateway.get_all_replication_channels():
+            fixture.extend(json.loads(channel.to_fixture(with_relations=True, json=True)))
         fixture = json.dumps(fixture)
 
         try:
