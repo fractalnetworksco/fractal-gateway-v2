@@ -2,15 +2,18 @@ import logging
 import uuid
 from typing import TYPE_CHECKING
 
+import docker
+import yaml
 from asgiref.sync import async_to_sync
 from django.db import models
+from docker.errors import NotFound
 from fractal_database import ssh
 from fractal_database.fields import LocalJSONField, LocalManyToManyField
 from fractal_database.models import ReplicatedModel, Service
 from fractal_database.replication.tasks import replicate_fixture
 
 from .tasks import link_up
-from .utils import generate_link_compose_snippet
+from .utils import GATEWAY_RESOURCE_PATH, generate_link_compose_snippet
 
 if TYPE_CHECKING:
     from .models import Gateway
@@ -72,12 +75,33 @@ class Link(ReplicatedModel):
 class Gateway(Service):
     links: models.QuerySet[Link]
     # homeservers: "models.QuerySet[MatrixHomeserver]"
+    COMPOSE_FILE = f"{GATEWAY_RESOURCE_PATH}/docker-compose.yml"
 
     databases = LocalManyToManyField("fractal_database.Database", related_name="gateways")
     ssh_config = LocalJSONField(default=dict)
 
     def __str__(self) -> str:
         return f"{self.name} (Gateway)"
+
+    def _create_gateway_docker_network(self) -> None:
+        client = docker.from_env()
+        try:
+            network = client.networks.get("fractal-gateway-network")  # type: ignore
+        except NotFound:
+            network = client.networks.create("fractal-gateway-network", driver="bridge")  # type: ignore
+        return network
+
+    def _render_compose_file(self) -> str:
+        # ensure docker network for gateway is created
+        self._create_gateway_docker_network()
+
+        with open(self.COMPOSE_FILE) as f:
+            compose_file = yaml.safe_load(f)
+
+        # update f.gateway label to have the gateway's primary key
+        compose_file["services"]["gateway"]["labels"]["f.gateway"] = str(self.pk)
+
+        return yaml.dump(compose_file)
 
     def _create_link_via_ssh(self, link_fqdn: str, override_link: bool = False) -> Link:
         """

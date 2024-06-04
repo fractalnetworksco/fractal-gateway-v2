@@ -1,0 +1,20 @@
+version: "3.9"
+services:
+  gateway:
+    image: fractalnetworks/fractal-gateway:latest
+    build:
+      context: ./gateway
+    ports:
+      - 80:80
+      - 443:443
+    labels:
+      f.gateway: "true"
+    environment:
+      NGINX_ENVSUBST_OUTPUT_DIR: /etc/nginx
+    restart: unless-stopped
+    container_name: fractal-gateway
+
+networks:
+  default:
+    name: fractal-gateway-network
+    external: true

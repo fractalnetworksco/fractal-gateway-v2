@@ -11,6 +11,7 @@ readme = "README.md"
 packages = [
  { include = "fractal" }
 ]
+include = ["fractal/gateway/resources/**"]
 
 [tool.fractal]
 namespace = "fractal.gateway"

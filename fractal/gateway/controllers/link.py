@@ -1,13 +1,17 @@
 import asyncio
 import sys
 from sys import exit
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from clicz import cli_method
 from fractal.cli.fmt import display_data
 from fractal.gateway.utils import generate_link_compose_snippet, get_gateway_container
+from fractal_database import ssh
 from fractal_database.utils import use_django
 from taskiq.kicker import AsyncKicker
+
+if TYPE_CHECKING:
+    from fractal.gateway.models import Gateway
 
 
 class FractalLinkController:
@@ -93,6 +97,19 @@ class FractalLinkController:
         return link
 
     @use_django
+    def up_over_ssh(self, gateway: "Gateway", link_fqdn: str, **kwargs):
+        host = gateway.ssh_config["host"]
+        port = gateway.ssh_config["port"]
+
+        try:
+            result = ssh(host, port, f"fractal link up {link_fqdn}")
+        except Exception as err:
+            print(f"Error: Could not bring link {link_fqdn} up: {err}", file=sys.stderr)
+            exit(1)
+
+        return result.strip().split(",")
+
+    @use_django
     @cli_method
     def up(self, link_fqdn: str, **kwargs):
         """
@@ -126,11 +143,16 @@ class FractalLinkController:
             )
             exit(1)
 
-        async def _link_up(link_fqdn: str):
+        async def _link_up(link_fqdn: str, room_id: str):
             # link_up.kicker().with_labels({"queue": "device", "device": ""})
             task = await link_up.kiq(link_fqdn)
             return await task.wait_result()
 
+        # if gateway.ssh_config:
+        #     gateway_link_public_key, link_address, client_private_key = self.up_over_ssh(
+        #         gateway, link_fqdn
+        #     )
+        # else:
         # will instead kick this with the func above ^^^^
         gateway_link_public_key, link_address, client_private_key = asyncio.run(
             link_up(link_fqdn)

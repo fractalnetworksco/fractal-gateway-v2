@@ -22,10 +22,8 @@ def create_gateway_and_homeserver_for_current_db(gateway_name: str, *args, **kwa
             return create_gateway_and_homeserver_for_current_db(gateway_name, *args, **kwargs)
 
     from fractal.gateway.models import Gateway
-    from fractal_database_matrix.models import (
-        MatrixHomeserver,
-        MatrixReplicationChannel,
-    )
+    from fractal_database.models import ServiceInstanceConfig
+    from fractal_database_matrix.models import MatrixReplicationChannel
 
     current_database = Database.current_db()
     current_device = Device.current_device()
@@ -40,6 +38,12 @@ def create_gateway_and_homeserver_for_current_db(gateway_name: str, *args, **kwa
         gateway.databases.add(current_database)
         logger.info("Adding current device %s to gateway %s" % (current_device, gateway))
         current_device.add_membership(gateway)
+
+    ServiceInstanceConfig.objects.create(
+        service=gateway,
+        current_device=current_device,
+        target_state="running",
+    )
 
     # create a representation for the Gateway
     current_db_origin_channel: "MatrixReplicationChannel" = current_database.origin_channel()  # type: ignore

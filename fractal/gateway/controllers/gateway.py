@@ -125,8 +125,6 @@ class FractalGatewayController:
             exit(1)
 
         # launch docker container, pass unique gateway name as label for easy retrieval
-        launch_gateway(gateway_name, labels={"f.gateway": str(gateway.pk)})
-
         print(f"Successfully initialized and launched Gateway: {gateway_name}")
 
     @use_django
@@ -182,6 +180,7 @@ class FractalGatewayController:
         ---
         """
         from fractal.gateway.models import Gateway
+        from fractal_database.models import Device, ServiceInstanceConfig
 
         try:
             gateway = Gateway.objects.get(name__icontains="fractal-gateway")
@@ -190,15 +189,22 @@ class FractalGatewayController:
             exit(1)
 
         try:
-            launch_gateway(gateway.name, labels={"f.gateway": str(gateway.pk)})
-        except PortAlreadyAllocatedError as err:
-            print(f"Failed to launch Gateway. Port {err.port} is already taken.")
-            exit(1)
-        except Exception as err:
-            print(f"Failed to launch Gateway: {err}")
+            conf = ServiceInstanceConfig.objects.get(service=gateway)
+        except ServiceInstanceConfig.DoesNotExist:
+            print(
+                f"Failed to find service instance config for gateway: {gateway}", file=sys.stderr
+            )
             exit(1)
 
-        print(f"Successfully launched Gateway {gateway.name}")
+        try:
+            current_device = Device.current_device()
+        except Device.DoesNotExist:
+            print("No current device found.", file=sys.stderr)
+            exit(1)
+
+        conf.target_state = "running"
+        conf.current_device = current_device
+        conf.save()
 
     def _add_via_ssh(self, gateway_ssh: str, database_name: str, ssh_port: str = "22", **kwargs):
         from fractal.gateway.models import Gateway

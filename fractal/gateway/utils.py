@@ -5,6 +5,7 @@ import time
 from typing import Any, Optional
 
 import docker
+import fractal.gateway
 from docker import DockerClient
 from docker.errors import APIError, NotFound
 from docker.models.containers import Container
@@ -23,6 +24,8 @@ CLIENT_LINK_DOCKERFILE_PATH = "client-link"
 CLIENT_LINK_IMAGE_TAG = "fractalnetworks/client-link:latest"
 
 logger = logging.getLogger(__name__)
+
+GATEWAY_RESOURCE_PATH = f"{fractal.gateway.__path__[0]}/resources"
 
 
 def check_port_availability(port: int) -> None:
@@ -86,6 +89,14 @@ def get_port_from_error(err_msg: str) -> int:
     if not match:
         raise ValueError(f"Port number not found in error message: {err_msg}")
     return int(match.group(1))
+
+
+def create_gateway_network(client: DockerClient) -> Network:
+    try:
+        network: Network = client.networks.get("fractal-gateway-network")  # type: ignore
+    except NotFound:
+        network: Network = client.networks.create("fractal-gateway-network", driver="bridge")  # type: ignore
+    return network
 
 
 def launch_gateway(container_name: str, labels: Optional[dict[str, Any]] = None) -> Container:
