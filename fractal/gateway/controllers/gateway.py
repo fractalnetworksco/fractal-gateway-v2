@@ -241,7 +241,7 @@ class FractalGatewayController:
         try:
             gateway = Gateway.objects.get(pk=gateway_uuid)
         except Gateway.DoesNotExist:
-            asyncio.run(replicate_fixture(json.dumps(gateway_fixture)))
+            asyncio.run(replicate_fixture(json.dumps(gateway_fixture), None))
             gateway = Gateway.objects.get(pk=gateway_uuid)
 
         gateway.databases.add(database)

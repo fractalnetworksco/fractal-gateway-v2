@@ -124,7 +124,7 @@ class Gateway(Service):
             raise Exception("Failed to create link via SSH: %s" % err.stderr.decode()) from err
 
         try:
-            async_to_sync(replicate_fixture)(result.strip())
+            async_to_sync(replicate_fixture)(result.strip(), None)
         except Exception as e:
             print(f"Error replicating link: {e}")
             exit(1)
