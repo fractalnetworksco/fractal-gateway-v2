@@ -2,7 +2,8 @@ import asyncio
 import json
 import sys
 import traceback
-from typing import Optional
+import uuid
+from typing import TYPE_CHECKING, Optional
 
 from asgiref.sync import async_to_sync
 from clicz import cli_method
@@ -15,6 +16,9 @@ from fractal_database.controllers.fractal_database_controller import (
     FractalDatabaseController,
 )
 from fractal_database.utils import use_django
+
+if TYPE_CHECKING:
+    from fractal_database.models import Device
 
 
 class FractalGatewayController:
@@ -50,10 +54,14 @@ class FractalGatewayController:
             case "json":
                 gateway_fixture = gateway.to_fixture(with_relations=True, json=True)
                 gateway_fixture = json.loads(gateway_fixture)
+                gateway_fixture = {
+                    "replication_id": str(uuid.uuid4()),
+                    "payload": [*gateway_fixture],
+                }
 
                 # include device memberships in the fixture
                 for membership in gateway.device_memberships.all():
-                    gateway_fixture.extend(
+                    gateway_fixture["payload"].extend(
                         json.loads(membership.to_fixture(with_relations=True, json=True))
                     )
 
@@ -61,8 +69,12 @@ class FractalGatewayController:
 
             case "python":
                 gateway_fixture = gateway.to_fixture(with_relations=True, queryset=True)
+                gateway_fixture = {
+                    "replication_id": str(uuid.uuid4()),
+                    "payload": [*gateway_fixture],
+                }
                 for membership in gateway.device_memberships.all():
-                    gateway_fixture.extend(
+                    gateway_fixture["payload"].extend(
                         membership.to_fixture(with_relations=True, queryset=True)
                     )
 
@@ -91,7 +103,7 @@ class FractalGatewayController:
             print("No gateways found")
             exit(0)
 
-        data = [{"name": gateway.name} for gateway in gateways]
+        data = [{"id": str(gateway.pk), "name": gateway.name} for gateway in gateways]
         display_data(data, title="Gateways", format=format)
 
     @use_django
@@ -208,7 +220,7 @@ class FractalGatewayController:
 
     def _add_via_ssh(self, gateway_ssh: str, database_name: str, ssh_port: str = "22", **kwargs):
         from fractal.gateway.models import Gateway
-        from fractal_database.models import Database
+        from fractal_database.models import Database, LocalReplicationChannel
         from fractal_database.replication.tasks import replicate_fixture
 
         try:
@@ -217,37 +229,41 @@ class FractalGatewayController:
             print(f"Database {database_name} does not exist.")
             exit(1)
 
-        try:
-            result = ssh(gateway_ssh, "-p", str(ssh_port), "fractal gateway export")
-        except Exception as err:
-            print(f"Failed to connect to Gateway:\n{err.stderr.decode()}", file=sys.stderr)
-            exit(1)
+        with database.as_current_database():
+            try:
+                result = ssh(gateway_ssh, "-p", str(ssh_port), "fractal gateway export")
+            except Exception as err:
+                print(f"Failed to connect to Gateway:\n{err.stderr.decode()}", file=sys.stderr)
+                exit(1)
 
-        print("Syncing Gateway into local database")
-        gateway_fixture = json.loads(result.strip())
-        for item in gateway_fixture:
-            if item["model"] == "gateway.gateway":
-                gateway_uuid = item["pk"]
-                break
-        else:
-            # should never happen
-            print(
-                f"Gateway did not return a gateway fixture:\n{json.dumps(gateway_fixture, indent=4)}",
-                file=sys.stderr,
-            )
-            exit(1)
+            print("Syncing Gateway into local database")
+            gateway_replication_event = json.loads(result.strip())
+            for item in gateway_replication_event["payload"]:
+                if item["model"] == "gateway.gateway":
+                    gateway_uuid = item["pk"]
+                    break
+            else:
+                # should never happen
+                print(
+                    f"Gateway did not return a gateway fixture:\n{json.dumps(gateway_replication_event, indent=4)}",
+                    file=sys.stderr,
+                )
+                exit(1)
 
-        # check to see if the gateway has already been loaded once into the local database
-        try:
-            gateway = Gateway.objects.get(pk=gateway_uuid)
-        except Gateway.DoesNotExist:
-            asyncio.run(replicate_fixture(json.dumps(gateway_fixture), None))
-            gateway = Gateway.objects.get(pk=gateway_uuid)
+            # check to see if the gateway has already been loaded once into the local database
+            try:
+                gateway = Gateway.objects.get(pk=gateway_uuid)
+            except Gateway.DoesNotExist:
+                asyncio.run(replicate_fixture(json.dumps(gateway_replication_event), None))
+                gateway = Gateway.objects.get(pk=gateway_uuid)
+                LocalReplicationChannel.objects.get_or_create(
+                    name=f"dummy-{gateway.name}", database=gateway
+                )
 
-        gateway.databases.add(database)
-        gateway.ssh_config["host"] = gateway_ssh
-        gateway.ssh_config["port"] = ssh_port
-        gateway.save()
+            gateway.databases.add(database)
+            gateway.ssh_config["host"] = gateway_ssh
+            gateway.ssh_config["port"] = ssh_port
+            gateway.save()
         print(f"Added Database {database.name} to Gateway {gateway.name}")
 
     @use_django
@@ -269,20 +285,18 @@ class FractalGatewayController:
 
     @use_django
     @cli_method
-    def register(self, gateway_name: str, **kwargs):
+    def register(self, gateway_name: str, database_name: str, **kwargs):
         """
         Creates a dedicated account for the Gateway on the homeserver you
         are replicating to.
         ---
         Args:
             gateway_name: Name of the Gateway.
+            database_name: Name of the Database to register the Gateway as a service with.
         """
         from fractal.gateway.models import Gateway
         from fractal_database.models import Database, LocalReplicationChannel
-        from fractal_database_matrix.operations import (
-            CreateDeviceSubRoom,
-            RegisterDeviceAccount,
-        )
+        from fractal_database_matrix.models import MatrixReplicationChannel
 
         # attempt to fetch gateway and its ssh config
         try:
@@ -293,76 +307,95 @@ class FractalGatewayController:
 
         if not gateway.ssh_config:
             print(
-                f"Cannot register gateway: {gateway.name}. It does not have an SSH configuration."
+                f"Cannot register gateway: {gateway.name}. It does not have an SSH configuration.",
+                file=sys.stderr,
             )
             exit(1)
 
-        # fetch the primary target of the current database
-        current_database = Database.current_db()
-        origin_channel = current_database.origin_channel()
-        if not origin_channel:
-            print(
-                f"Cannot register gateway. Your current database {current_database} is not being replicated anywhere."
-            )
+        try:
+            database = Database.objects.get(name=database_name)
+        except Database.DoesNotExist:
+            print(f"Database {database_name} does not exist.", file=sys.stderr)
             exit(1)
 
-        operations = []
-        # create device credentials for each gateway device if it doesn't already exist
-        with transaction.atomic():
+        channels = database.get_all_replication_channels()
+
+        homeservers = set()
+        for channel in channels:
+            if isinstance(channel, LocalReplicationChannel):
+                continue
+            if not isinstance(channel, MatrixReplicationChannel):
+                continue
+
+            homeservers.add(channel.homeserver)
+
+        with database.as_current_database(use_transaction=True):
+            # create the gateway service for the database (group)
+            gateway_service = Gateway.objects.create(
+                name=f"{database.name}-gateway", ssh_config=gateway.ssh_config, parent_db=database
+            )
+
+            gateway_devices: list["Device"] = []
+
+            # add gateway devices as members to the service
             for membership in gateway.device_memberships.all():
-                device = membership.device
-                for device_membership in device.memberships.all():
-                    for channel in device_membership.database.get_all_replication_channels():
-                        if isinstance(channel, LocalReplicationChannel):
-                            continue
+                gateway_devices.append(membership.device)
+                membership.device.add_membership(gateway_service)
+            # add database (group) devices as members to the service
+            for membership in database.device_memberships.all():
+                membership.device.add_membership(gateway_service)
 
-                        # ensure that an account exists for the device on the channel's homeserver
-                        if not device.matrixcredentials_set.filter(
-                            homeserver=channel.homeserver
-                        ).exists():
-                            operations.extend(
-                                RegisterDeviceAccount.create_durable_operations(
-                                    device,
-                                    channel,
-                                )
-                            )
-
-                        # ensure that a sub-room exists for the device in the channel's space
-                        if not device_membership.metadata.get(channel.pk):
-                            operations.extend(
-                                CreateDeviceSubRoom.create_durable_operations(
-                                    device_membership,
-                                    channel,
-                                )
-                            )
-
-        # execute the operations
-        for operation in operations:
-            async_to_sync(operation.execute)()
+            # create matrix replication channels for each homeserver
+            # for the gateway service
+            for homeserver in homeservers:
+                gateway_service.create_channel(
+                    MatrixReplicationChannel, homeserver=homeserver, source=True, target=True
+                )
 
         # now that the device should be registered with all homeservers,
-        # collect all of the deivce credentials and give them to the gateway
-        fixture = []
-        for membership in gateway.device_memberships.all():
-            for cred in membership.device.matrixcredentials_set.all():
-                fixture.extend(json.loads(cred.to_fixture(with_relations=True, json=True)))
+        replication_event = {
+            "replication_id": str(uuid.uuid4()),
+            "payload": [],
+        }
 
-        # serialize replication channels for the gateway
-        for channel in gateway.get_all_replication_channels():
-            fixture.extend(json.loads(channel.to_fixture(with_relations=True, json=True)))
-        fixture = json.dumps(fixture)
+        # provide the gateway's matrix credentials and its membership to the gateway service
+        for gateway_device in gateway_devices:
+            for cred in gateway_device.matrixcredentials_set.all():
+                replication_event["payload"].extend(
+                    json.loads(cred.to_fixture(with_relations=True, json=True))
+                )
 
+            # serialize the gateway device membership to the gateway service
+            membership = gateway_device.memberships.get(database=gateway_service)
+            replication_event["payload"].extend(
+                json.loads(membership.to_fixture(with_relations=True, json=True))
+            )
+
+        # provide all of the replication channels for the new gateway service
+        for channel in gateway_service.get_all_replication_channels():
+            replication_event["payload"].extend(
+                json.loads(channel.to_fixture(with_relations=True, json=True))
+            )
+
+        replication_event["payload"].extend(
+            json.loads(gateway_service.to_fixture(with_relations=True, json=True))
+        )
+        replication_event = json.dumps(replication_event)
+
+        # laod the replication event into the gateway
         try:
             result = ssh(
                 gateway.ssh_config["host"],
                 "-p",
                 str(gateway.ssh_config["port"]),
                 "fractal db sync -",
-                _in=fixture,
+                _in=replication_event,
             )
         except Exception as err:
             print(f"Failed to connect to Gateway:\n{err.stderr.decode()}", file=sys.stderr)
             exit(1)
+
+        print(f"Successfully registered Gateway {gateway.name} for {database.name}")
 
 
 Controller = FractalGatewayController

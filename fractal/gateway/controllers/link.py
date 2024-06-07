@@ -1,11 +1,10 @@
 import asyncio
 import sys
 from sys import exit
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from clicz import cli_method
 from fractal.cli.fmt import display_data
-from fractal.gateway.utils import generate_link_compose_snippet, get_gateway_container
 from fractal_database import ssh
 from fractal_database.utils import use_django
 from taskiq.kicker import AsyncKicker
@@ -50,7 +49,7 @@ class FractalLinkController:
     @use_django
     @cli_method
     def create(
-        self, fqdn: str, gateway_name: str, output_as_json=False, override: bool = False, **kwargs
+        self, fqdn: str, gateway_id: str, output_as_json=False, force: bool = False, **kwargs
     ):
         """
         Create a link. The created link will be added to all gateway_names.
@@ -58,43 +57,48 @@ class FractalLinkController:
         ---
         Args:
             fqdn: Fully qualified domain name for the link (i.e. subdomain.mydomain.com).
-            gateway_name: Name of the gateway to create link to.
+            gateway_id: ID of the gateway to create link to.
             output_as_json: Whether to output the link as a JSON fixture. Defaults to False.
-            override: Whether to override the link if it already exists. Defaults to False.
+            force: Whether to continue if the link already exists. Defaults to False.
         """
         from fractal.gateway.models import Gateway, Link
 
-        gateway = Gateway.objects.filter(name__icontains=gateway_name)
+        gateway = Gateway.objects.filter(pk=gateway_id)
         if not gateway.exists():
-            print(f"Error creating link: Could not find gateway {gateway_name}.", file=sys.stderr)
+            print(
+                f"Error creating link: Could not find gateway by the id of {gateway_id}.",
+                file=sys.stderr,
+            )
             exit(1)
         gateway = gateway.first()
 
-        try:
-            link = Link.objects.get(fqdn=fqdn)
-            if not override:
-                print(
-                    f"Error creating link: Link {fqdn} already exists. Specify --override to forcefully override.",
-                    file=sys.stderr,
-                )
-                exit(1)
-        except Link.DoesNotExist:
+        with gateway.as_current_database():
             try:
-                link = Link.objects.create(fqdn=fqdn)
-            except Exception as err:
-                print(
-                    f"Error creating link: Could not create link {fqdn}: {err}", file=sys.stderr
-                )
-                exit(1)
+                link = Link.objects.get(fqdn=fqdn)
+                if not force:
+                    print(
+                        f"Error creating link: Link {fqdn} already exists. Specify --override to forcefully override.",
+                        file=sys.stderr,
+                    )
+                    exit(1)
+            except Link.DoesNotExist:
+                try:
+                    link = Link.objects.create(fqdn=fqdn)
+                except Exception as err:
+                    print(
+                        f"Error creating link: Could not create link {fqdn}: {err}",
+                        file=sys.stderr,
+                    )
+                    exit(1)
 
-        link.gateways.add(gateway)
+            link.gateways.add(gateway)
 
-        if output_as_json:
-            print(link.to_fixture(json=True))
-        else:
-            print(f"Successfully created link: {link}")
-            print(f"Added link to the following gateway: {gateway.name}")
-        return link
+            if output_as_json:
+                print(link.to_fixture(json=True))
+            else:
+                print(f"Successfully created link: {link}")
+                print(f"Added link to the following gateway: {gateway.name}")
+            return link
 
     @use_django
     def up_over_ssh(self, gateway: "Gateway", link_fqdn: str, **kwargs):
@@ -102,7 +106,7 @@ class FractalLinkController:
         port = gateway.ssh_config["port"]
 
         try:
-            result = ssh(host, port, f"fractal link up {link_fqdn}")
+            result = ssh(host, port, f"fractal link up {gateway.pk} {link_fqdn}")
         except Exception as err:
             print(f"Error: Could not bring link {link_fqdn} up: {err}", file=sys.stderr)
             exit(1)
@@ -111,11 +115,12 @@ class FractalLinkController:
 
     @use_django
     @cli_method
-    def up(self, link_fqdn: str, **kwargs):
+    def up(self, gateway_id: str, link_fqdn: str, **kwargs):
         """
         Bring the link up.
         ---
         Args:
+            gateway_id: ID of the gateway service.
             link_fqdn: Fully qualified domain name for the link (i.e. subdomain.mydomain.com).
         """
         from fractal.gateway.models import Gateway, Link
@@ -123,9 +128,6 @@ class FractalLinkController:
         from fractal.gateway.utils import build_gateway_containers
 
         build_gateway_containers()
-
-        gateway = get_gateway_container()
-        gateway_id = gateway.labels.get("f.gateway")
 
         try:
             gateway = Gateway.objects.get(pk=gateway_id)
