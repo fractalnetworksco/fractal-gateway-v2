@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Optional
 from asgiref.sync import async_to_sync
 from clicz import cli_method
 from django.db import transaction
+from django.db.models import Q, Subquery
 from fractal.cli.fmt import display_data
 from fractal.gateway.exceptions import PortAlreadyAllocatedError
 from fractal.gateway.utils import check_port_availability, launch_gateway
@@ -60,10 +61,18 @@ class FractalGatewayController:
                 }
 
                 # include device memberships in the fixture
-                for membership in gateway.device_memberships.all():
+                device_memberships = gateway.device_memberships.prefetch_related(
+                    "device__domains"
+                ).all()
+                for membership in device_memberships:
                     gateway_fixture["payload"].extend(
                         json.loads(membership.to_fixture(with_relations=True, json=True))
                     )
+                    domains = membership.device.domains.all()
+                    for domain in domains:
+                        gateway_fixture["payload"].extend(
+                            json.loads(domain.to_fixture(with_relations=True, json=True))
+                        )
 
                 gateway_fixture = json.dumps(gateway_fixture)
 
@@ -107,14 +116,14 @@ class FractalGatewayController:
         display_data(data, title="Gateways", format=format)
 
     @use_django
-    def _init(self, gateway_name: str, **kwargs):
+    def _init(self, gateway_name: str, fqdn: str, **kwargs):
         from fractal.gateway.models import Gateway
         from fractal.gateway.signals import create_gateway_and_homeserver_for_current_db
 
         gateway_name = "fractal-gateway"
         try:
             Gateway.objects.get(name__icontains=gateway_name)
-            print(f"Gateway {gateway_name} already exists.")
+            print(f"Gateway {gateway_name} already exists.", file=sys.stderr)
             exit(1)
         except Gateway.DoesNotExist:
             pass
@@ -124,14 +133,17 @@ class FractalGatewayController:
             check_port_availability(self.HTTP_GATEWAY_PORT)
             check_port_availability(self.HTTPS_GATEWAY_PORT)
         except PortAlreadyAllocatedError as err:
-            print(f"Can't initialize Gateway: Port {err.port} is already taken.")
+            print(f"Can't initialize Gateway: Port {err.port} is already taken.", file=sys.stderr)
             exit(1)
         except Exception as err:
-            print(f"Can't initialize Gateway: Failed to verify port availability: {err}")
+            print(
+                f"Can't initialize Gateway: Failed to verify port availability: {err}",
+                file=sys.stderr,
+            )
             exit(1)
 
         try:
-            gateway = create_gateway_and_homeserver_for_current_db(gateway_name)
+            gateway = create_gateway_and_homeserver_for_current_db(gateway_name, fqdn)
         except Exception:
             traceback.print_exc()
             exit(1)
@@ -140,11 +152,11 @@ class FractalGatewayController:
         print(f"Successfully initialized and launched Gateway: {gateway_name}")
 
     @use_django
-    def _init_remote(self, ssh_url: str, ssh_port: str, gateway_name: str, **kwargs):
+    def _init_remote(self, ssh_url: str, ssh_port: str, fqdn: str, gateway_name: str, **kwargs):
         from fractal_database.models import Database
 
         try:
-            result = ssh(ssh_url, "-p", ssh_port, f"fractal gateway init --gateway-name {gateway_name}")  # type: ignore
+            result = ssh(ssh_url, "-p", ssh_port, f"fractal gateway init {fqdn} --gateway-name {gateway_name}")  # type: ignore
         except Exception as err:
             print(f"Failed to initialize Gateway:\n{err.stderr.decode()}", file=sys.stderr)
             exit(1)
@@ -157,6 +169,7 @@ class FractalGatewayController:
     @cli_method
     def init(
         self,
+        fqdn: str,
         gateway_name: str = "fractal_gateway",
         ssh_url: Optional[str] = None,
         ssh_port: str = "22",
@@ -168,13 +181,14 @@ class FractalGatewayController:
         NOTE: When initializing remotely, ensure that you are able to SSH into the remote machine.
         ---
         Args:
+            fqdn: The fqdn the Gateway can create links under.
             gateway_name: The name of the Gateway to initialize. Defaults to "fractal_gateway".
             ssh_url: The SSH URL of the Gateway. If provided, the Gateway will be initialized remotely, then loaded
                      into your current database.
             ssh_port: The SSH port of the Gateway. Defaults to 22.
         """
         if ssh_url:
-            return self._init_remote(ssh_url, ssh_port, gateway_name)
+            return self._init_remote(ssh_url, ssh_port, fqdn, gateway_name)
 
         # attempt to fetch gateway. Exit if it already exists
         fdb_controller = FractalDatabaseController()
@@ -182,7 +196,7 @@ class FractalGatewayController:
             project_name=gateway_name, quiet=True, exist_ok=True, as_instance=True
         )
 
-        self._init(gateway_name)  # type: ignore
+        self._init(gateway_name, fqdn)  # type: ignore
 
     @use_django
     @cli_method
@@ -220,7 +234,7 @@ class FractalGatewayController:
 
     def _add_via_ssh(self, gateway_ssh: str, database_name: str, ssh_port: str = "22", **kwargs):
         from fractal.gateway.models import Gateway
-        from fractal_database.models import Database, LocalReplicationChannel
+        from fractal_database.models import Database, Device, LocalReplicationChannel
         from fractal_database.replication.tasks import replicate_fixture
 
         try:
@@ -228,6 +242,8 @@ class FractalGatewayController:
         except Database.DoesNotExist:
             print(f"Database {database_name} does not exist.")
             exit(1)
+
+        current_device = Device.current_device()
 
         with database.as_current_database():
             try:
@@ -259,11 +275,20 @@ class FractalGatewayController:
                 LocalReplicationChannel.objects.get_or_create(
                     name=f"dummy-{gateway.name}", database=gateway
                 )
+                gateway_device_memberships = gateway.device_memberships.select_related(
+                    "device"
+                ).all()
+
+                for membership in gateway_device_memberships:
+                    print(f"Setting ssh config for Gateway device {membership.device.name}")
+                    membership.device.ssh_config["host"] = gateway_ssh
+                    membership.device.ssh_config["port"] = ssh_port
+                    membership.device.save()
 
             gateway.databases.add(database)
-            gateway.ssh_config["host"] = gateway_ssh
-            gateway.ssh_config["port"] = ssh_port
             gateway.save()
+            current_device.add_membership(gateway)
+
         print(f"Added Database {database.name} to Gateway {gateway.name}")
 
     @use_django
@@ -295,7 +320,7 @@ class FractalGatewayController:
             database_name: Name of the Database to register the Gateway as a service with.
         """
         from fractal.gateway.models import Gateway
-        from fractal_database.models import Database, LocalReplicationChannel
+        from fractal_database.models import Database, Device, LocalReplicationChannel
         from fractal_database_matrix.models import MatrixReplicationChannel
 
         # attempt to fetch gateway and its ssh config
@@ -305,12 +330,20 @@ class FractalGatewayController:
             print(f"Gateway {gateway_name} does not exist.")
             exit(1)
 
-        if not gateway.ssh_config:
+        # FIXME: for now, any device that has an ssh_config is considered a gateway device
+        gateway_device_memberships = gateway.device_memberships.select_related("device").filter(
+            ~Q(device__ssh_config={})
+        )
+        if not gateway_device_memberships.exists():
             print(
-                f"Cannot register gateway: {gateway.name}. It does not have an SSH configuration.",
+                f"Cannot register gateway: {gateway.name}. No gateway devices have an SSH configuration.",
                 file=sys.stderr,
             )
             exit(1)
+
+        gateway_devices = set(
+            gateway_device.device for gateway_device in gateway_device_memberships
+        )
 
         try:
             database = Database.objects.get(name=database_name)
@@ -332,18 +365,28 @@ class FractalGatewayController:
         with database.as_current_database(use_transaction=True):
             # create the gateway service for the database (group)
             gateway_service = Gateway.objects.create(
-                name=f"{database.name}-gateway", ssh_config=gateway.ssh_config, parent_db=database
+                name=f"{database.name}-gateway", parent_db=database
             )
 
-            gateway_devices: list["Device"] = []
+            # get all devices that are members of the gateway and database
+            device_ids = (
+                gateway.device_memberships.values_list("device", flat=True)
+                | database.device_memberships.values_list("device", flat=True)
+            ).distinct()
+            devices = Device.objects.filter(pk__in=Subquery(device_ids))
+
+            for device in devices:
+                device.add_membership(gateway_service)
 
             # add gateway devices as members to the service
-            for membership in gateway.device_memberships.all():
-                gateway_devices.append(membership.device)
-                membership.device.add_membership(gateway_service)
-            # add database (group) devices as members to the service
-            for membership in database.device_memberships.all():
-                membership.device.add_membership(gateway_service)
+            # for membership in gateway.device_memberships.all():
+            #     membership.device.add_membership(gateway_service)
+            # # add database (group) devices as members to the service (excluding the gateway device members as they were just added)
+            # for membership in database.device_memberships.exclude(device__in=gateway_devices):
+            #     # dont need to add the device if it is a gateway device
+            #     # since it was gateway devices were added above
+            #     if membership.device not in gateway_devices:
+            #         membership.device.add_membership(gateway_service)
 
             # create matrix replication channels for each homeserver
             # for the gateway service
@@ -357,19 +400,10 @@ class FractalGatewayController:
             "replication_id": str(uuid.uuid4()),
             "payload": [],
         }
-
-        # provide the gateway's matrix credentials and its membership to the gateway service
-        for gateway_device in gateway_devices:
-            for cred in gateway_device.matrixcredentials_set.all():
-                replication_event["payload"].extend(
-                    json.loads(cred.to_fixture(with_relations=True, json=True))
-                )
-
-            # serialize the gateway device membership to the gateway service
-            membership = gateway_device.memberships.get(database=gateway_service)
-            replication_event["payload"].extend(
-                json.loads(membership.to_fixture(with_relations=True, json=True))
-            )
+        # provide the gateway serivce itself
+        replication_event["payload"].extend(
+            json.loads(gateway_service.to_fixture(with_relations=True, json=True))
+        )
 
         # provide all of the replication channels for the new gateway service
         for channel in gateway_service.get_all_replication_channels():
@@ -377,23 +411,37 @@ class FractalGatewayController:
                 json.loads(channel.to_fixture(with_relations=True, json=True))
             )
 
-        replication_event["payload"].extend(
-            json.loads(gateway_service.to_fixture(with_relations=True, json=True))
-        )
-        replication_event = json.dumps(replication_event)
-
-        # laod the replication event into the gateway
-        try:
-            result = ssh(
-                gateway.ssh_config["host"],
-                "-p",
-                str(gateway.ssh_config["port"]),
-                "fractal db sync -",
-                _in=replication_event,
+        # provide all of the gateway_service memberships
+        for membership in gateway_service.device_memberships.all():
+            replication_event["payload"].extend(
+                json.loads(membership.to_fixture(with_relations=True, json=True))
             )
-        except Exception as err:
-            print(f"Failed to connect to Gateway:\n{err.stderr.decode()}", file=sys.stderr)
-            exit(1)
+
+        # for each device, provide all of their respective matrix credentials
+        for gateway_device in gateway_devices:
+            device_replication_event = replication_event.copy()
+            import pdb
+
+            pdb.set_trace()
+            for cred in gateway_device.matrixcredentials_set.all():
+                device_replication_event["payload"].extend(
+                    json.loads(cred.to_fixture(with_relations=True, json=True))
+                )
+
+            device_replication_event = json.dumps(device_replication_event)
+
+            # load the replication event into the gateway
+            try:
+                result = ssh(
+                    gateway_device.ssh_config["host"],
+                    "-p",
+                    str(gateway_device.ssh_config["port"]),
+                    "fractal db sync -",
+                    _in=device_replication_event,
+                )
+            except Exception as err:
+                print(f"Failed to connect to Gateway:\n{err.stderr.decode()}", file=sys.stderr)
+                exit(1)
 
         print(f"Successfully registered Gateway {gateway.name} for {database.name}")
 

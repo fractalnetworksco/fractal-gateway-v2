@@ -8,6 +8,7 @@ import docker
 import yaml
 from asgiref.sync import async_to_sync
 from django.db import models
+from django.db.models import Q
 from docker.errors import NotFound
 from fractal_database import ssh
 from fractal_database.fields import LocalJSONField, LocalManyToManyField
@@ -20,15 +21,22 @@ from .utils import GATEWAY_RESOURCE_PATH, generate_link_compose_snippet
 if TYPE_CHECKING:
     from fractal_database_matrix.models import MatrixReplicationChannel
 
-    from .models import Gateway
+    from .models import Gateway, Link
 
 logger = logging.getLogger(__name__)
 
 
+class Domain(ReplicatedModel):
+    links: models.QuerySet["Link"]
+
+    uri = models.CharField(max_length=255, unique=True)
+    devices = models.ManyToManyField("fractal_database.Device", related_name="domains")
+
+
 class Link(ReplicatedModel):
     id = models.UUIDField(primary_key=True, editable=False, default=uuid.uuid4)
-    gateways = models.ManyToManyField("gateway.Gateway", related_name="links")
-    fqdn = models.CharField(max_length=255, unique=True)
+    # gateways = models.ManyToManyField("gateway.Gateway", related_name="links")
+    domain = models.ForeignKey(Domain, on_delete=models.CASCADE, related_name="domains")
     service = models.ForeignKey(
         "fractal_database.ServiceInstanceConfig",
         on_delete=models.CASCADE,
@@ -36,13 +44,19 @@ class Link(ReplicatedModel):
         null=True,
         blank=True,
     )
+    subdomain = models.CharField(max_length=255)
+
     # TODO: needs an owner
 
     def __str__(self) -> str:
-        return f"{self.fqdn} (Link)"
+        return self.fqdn
 
-    def _up_via_ssh(self, gateway: "Gateway") -> tuple[str, str, str]:
-        ssh_config = gateway.ssh_config
+    @property
+    def fqdn(self) -> str:
+        return f"{self.subdomain}.{self.domain.uri}"
+
+    def _up_via_ssh(self, gateway: "Gateway", device: "Device") -> tuple[str, str, str]:
+        ssh_config = device.ssh_config
         try:
             result = ssh(
                 ssh_config["host"],
@@ -57,8 +71,14 @@ class Link(ReplicatedModel):
         return result.split(",")
 
     async def up(self, gateway: "Gateway") -> tuple[str, str, str]:
-        if gateway.ssh_config:
-            return self._up_via_ssh(gateway)
+        membership = (
+            await gateway.device_memberships.select_related("device")
+            .prefetch_related("device__domains")
+            .filter(~Q(device__ssh_config={}), device__domains__pk=self.domain.pk)
+            .afirst()
+        )
+        if membership:
+            return self._up_via_ssh(gateway, membership.device)
         else:
             channel: Optional["MatrixReplicationChannel"] = await gateway.matrixreplicationchannel_set.afirst()  # type: ignore
             if not channel:
@@ -66,15 +86,17 @@ class Link(ReplicatedModel):
                     f"Gateway {gateway.name} does not have a matrix replication channel"
                 )
 
-            # FIXME: this is only temporary until device has fqdns
-            current_device = await Device.acurrent_device()
+            # fetch a device membership where the device has this link's domain in its domains
             membership = (
                 await gateway.device_memberships.select_related("device")
-                .exclude(device=current_device)
+                .prefetch_related("device__domains")
+                .filter(device__domains__pk=self.domain.pk)
                 .afirst()
             )
             if not membership:
-                raise Exception(f"Could not find a device for gateway {gateway.name}")
+                raise Exception(
+                    f"Could not find a device for gateway {gateway.name} that serves the fqdn {self.fqdn}"
+                )
 
             task_labels = {
                 "device": membership.device.name,
@@ -109,7 +131,6 @@ class Gateway(Service):
     COMPOSE_FILE = f"{GATEWAY_RESOURCE_PATH}/docker-compose.yml"
 
     databases = LocalManyToManyField("fractal_database.Database", related_name="gateways")
-    ssh_config = LocalJSONField(default=dict)
 
     def __str__(self) -> str:
         return f"{self.name} (Gateway)"
@@ -134,21 +155,33 @@ class Gateway(Service):
 
         return yaml.dump(compose_file)
 
-    def _create_link_via_ssh(self, link_fqdn: str, override_link: bool = False) -> Link:
+    def get_domain(self, domain: str) -> Domain:
+        return Domain.objects.prefetch_related(
+            "devices__memberships", "devices__memberships__database"
+        ).get(uri=domain, devices__memberships__database=self)
+
+    def get_domains(self) -> models.QuerySet[Domain]:
+        return Domain.objects.prefetch_related(
+            "devices__memberships", "devices__memberships__database"
+        ).filter(devices__memberships__database=self)
+
+    def _create_link_via_ssh(
+        self, domain: Domain, subdomain: str, device: "Device", override_link: bool = False
+    ) -> Link:
         """
         Intended to be run when the gateway is being interacted with remotely.
         """
         from fractal.gateway.models import Link
 
-        ssh_host = self.ssh_config["host"]
-        ssh_port = self.ssh_config["port"]  # type: ignore
+        ssh_host = device.ssh_config["host"]
+        ssh_port = device.ssh_config["port"]  # type: ignore
 
         try:
             result = ssh(
                 ssh_host,
                 "-p",
                 str(ssh_port),
-                f"fractal link create {link_fqdn} {str(self.pk)} --output-as-json",
+                f"fractal link create {subdomain}.{domain.uri} {str(self.pk)} --output-as-json",
                 "--force" if override_link else "",
             )
         except Exception as err:
@@ -167,26 +200,42 @@ class Gateway(Service):
             print(f"Error replicating link: {e}", file=sys.stderr)
             exit(1)
 
-        return Link.objects.get(fqdn=link_fqdn)
+        return Link.objects.get(domain=domain, subdomain=subdomain)
 
-    def create_link(self, fqdn: str, override_link: bool = False) -> Link:
+    def create_link(self, domain: Domain, subdomain: str, override_link: bool = False) -> Link:
         with self.as_current_database():
             try:
-                link = Link.objects.get(fqdn=fqdn)
+                link = Link.objects.get(domain=domain, subdomain=subdomain)
                 if not override_link:
                     raise Exception(
-                        f"Link {fqdn} already exists. Specify --override to forcefully override."
+                        f"Link {link} already exists. Specify --override to forcefully override."
                     )
             except Link.DoesNotExist:
-                if self.ssh_config:
-                    # create via ssh
-                    link = self._create_link_via_ssh(fqdn, override_link=override_link)
+                # get all devices that have the fqdn
+                memberships = (
+                    self.device_memberships.prefetch_related("device__domains")
+                    .select_related("device")
+                    .filter(device__domains__pk=domain.pk)
+                )
+                if not memberships.exists():
+                    raise Exception(
+                        f"Gateway {self} does not have any devices that serve domain {domain}"
+                    )
 
+                # if any memberships that have devices with ssh_config, create the link by sshing to that device
+                membership_with_ssh_config = memberships.filter(~Q(device__ssh_config={})).first()
+
+                if membership_with_ssh_config:
+                    link = self._create_link_via_ssh(
+                        domain,
+                        subdomain,
+                        membership_with_ssh_config.device,
+                        override_link=override_link,
+                    )
                 else:
-                    link = Link.objects.create(fqdn=fqdn)
+                    link = Link.objects.create(domain=domain, subdomain=subdomain)
 
-            link.gateways.add(self)
-
+            # link.gateways.add(self)
             return link
 
 
