@@ -1,10 +1,11 @@
+import logging
 import os
 import re
 import time
 from typing import Any, Optional
 
 import docker
-import yaml
+import fractal.gateway
 from docker import DockerClient
 from docker.errors import APIError, NotFound
 from docker.models.containers import Container
@@ -22,13 +23,16 @@ GATEWAY_LINK_IMAGE_TAG = "fractalnetworks/fractal-gateway-link:latest"
 CLIENT_LINK_DOCKERFILE_PATH = "client-link"
 CLIENT_LINK_IMAGE_TAG = "fractalnetworks/client-link:latest"
 
+logger = logging.getLogger(__name__)
+
+GATEWAY_RESOURCE_PATH = f"{fractal.gateway.__path__[0]}/resources"
+
 
 def check_port_availability(port: int) -> None:
     """
     Attempts to connect to a given port on the specified host to infer if the port is in use.
 
     Parameters:
-    - host: String, the hostname or IP address to check the port on. Use 'localhost' or '127.0.0.1' for local checks.
     - port: Integer, the port number to check.
 
     Returns:
@@ -61,11 +65,19 @@ def build_gateway_containers() -> None:
     Builds the Gateway and Gateway Link Docker containers.
     """
     client = docker.from_env()
+    logger.info("Building Docker image %s from %s" % (GATEWAY_IMAGE_TAG, GATEWAY_DOCKERFILE_PATH))
     client.images.build(
         path=get_gateway_resource_path(GATEWAY_DOCKERFILE_PATH), tag=GATEWAY_IMAGE_TAG
     )
+    logger.info(
+        "Building Docker image %s from %s"
+        % (GATEWAY_LINK_IMAGE_TAG, GATEWAY_LINK_DOCKERFILE_PATH)
+    )
     client.images.build(
         path=get_gateway_resource_path(GATEWAY_LINK_DOCKERFILE_PATH), tag=GATEWAY_LINK_IMAGE_TAG
+    )
+    logger.info(
+        "Building Docker image %s from %s" % (CLIENT_LINK_IMAGE_TAG, CLIENT_LINK_DOCKERFILE_PATH)
     )
     client.images.build(
         path=get_gateway_resource_path(CLIENT_LINK_DOCKERFILE_PATH), tag=CLIENT_LINK_IMAGE_TAG
@@ -77,6 +89,14 @@ def get_port_from_error(err_msg: str) -> int:
     if not match:
         raise ValueError(f"Port number not found in error message: {err_msg}")
     return int(match.group(1))
+
+
+def create_gateway_network(client: DockerClient) -> Network:
+    try:
+        network: Network = client.networks.get("fractal-gateway-network")  # type: ignore
+    except NotFound:
+        network: Network = client.networks.create("fractal-gateway-network", driver="bridge")  # type: ignore
+    return network
 
 
 def launch_gateway(container_name: str, labels: Optional[dict[str, Any]] = None) -> Container:
@@ -288,6 +308,7 @@ def generate_link_compose_snippet(
       TLS_INTERNAL: true
     cap_add:
       - NET_ADMIN
+    restart: unless-stopped
 """
 
     return f"""
@@ -301,4 +322,5 @@ def generate_link_compose_snippet(
       GATEWAY_ENDPOINT: {link_config['link_address']}
     cap_add:
       - NET_ADMIN
+    restart: unless-stopped
 """

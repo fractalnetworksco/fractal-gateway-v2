@@ -11,6 +11,7 @@ readme = "README.md"
 packages = [
  { include = "fractal" }
 ]
+include = ["fractal/gateway/resources/**"]
 
 [tool.fractal]
 namespace = "fractal.gateway"
@@ -21,6 +22,7 @@ django = ">=4.0.0"
 fractal-database = ">=0.0.1"
 djangorestframework = ">=3.14.0"
 sh = ">=2.0.4"
+tldextract = "^5.1.2"
 
 [tool.poetry.plugins."fractal.plugins"]
 "gateway" = "fractal.gateway.controllers.gateway"

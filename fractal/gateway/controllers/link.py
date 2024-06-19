@@ -1,13 +1,17 @@
 import asyncio
 import sys
 from sys import exit
-from typing import Optional
+from typing import TYPE_CHECKING
 
+import tldextract
 from clicz import cli_method
 from fractal.cli.fmt import display_data
-from fractal.gateway.utils import generate_link_compose_snippet, get_gateway_container
+from fractal_database import ssh
 from fractal_database.utils import use_django
 from taskiq.kicker import AsyncKicker
+
+if TYPE_CHECKING:
+    from fractal.gateway.models import Gateway
 
 
 class FractalLinkController:
@@ -35,7 +39,7 @@ class FractalLinkController:
         # TODO: Include health information when available (link is running)
         data = [
             {
-                "fqdn": link.fqdn,
+                "fqdn": link.domain,
                 "gateways": ", ".join([gateway.name for gateway in link.gateways.all()]),
             }
             for link in links
@@ -46,7 +50,7 @@ class FractalLinkController:
     @use_django
     @cli_method
     def create(
-        self, fqdn: str, gateway_name: str, output_as_json=False, override: bool = False, **kwargs
+        self, fqdn: str, gateway_id: str, output_as_json=False, force: bool = False, **kwargs
     ):
         """
         Create a link. The created link will be added to all gateway_names.
@@ -54,81 +58,107 @@ class FractalLinkController:
         ---
         Args:
             fqdn: Fully qualified domain name for the link (i.e. subdomain.mydomain.com).
-            gateway_name: Name of the gateway to create link to.
+            gateway_id: ID of the gateway to create link to.
             output_as_json: Whether to output the link as a JSON fixture. Defaults to False.
-            override: Whether to override the link if it already exists. Defaults to False.
+            force: Whether to continue if the link already exists. Defaults to False.
         """
         from fractal.gateway.models import Gateway, Link
 
-        gateway = Gateway.objects.filter(name__icontains=gateway_name)
+        gateway = Gateway.objects.filter(pk=gateway_id)
         if not gateway.exists():
-            print(f"Error creating link: Could not find gateway {gateway_name}.", file=sys.stderr)
+            print(
+                f"Error creating link: Could not find gateway by the id of {gateway_id}.",
+                file=sys.stderr,
+            )
             exit(1)
         gateway = gateway.first()
 
-        try:
-            link = Link.objects.get(fqdn=fqdn)
-            if not override:
+        with gateway.as_current_database():
+            url = tldextract.extract(fqdn)
+            domain = url.registered_domain or url.domain
+            subdomain = url.subdomain
+
+            try:
+                domain = gateway.get_domain(domain=domain)
+            except Exception as err:
                 print(
-                    f"Error creating link: Link {fqdn} already exists. Specify --override to forcefully override.",
+                    f"Error creating link: Could not find fqdn {domain} for gateway {gateway}: {err}",
                     file=sys.stderr,
                 )
                 exit(1)
-        except Link.DoesNotExist:
+
             try:
-                link = Link.objects.create(fqdn=fqdn)
-            except Exception as err:
-                print(
-                    f"Error creating link: Could not create link {fqdn}: {err}", file=sys.stderr
-                )
-                exit(1)
+                link = Link.objects.get(domain=domain, subdomain=subdomain)
+                if not force:
+                    print(
+                        f"Error creating link: Link {domain} already exists. Specify --override to forcefully override.",
+                        file=sys.stderr,
+                    )
+                    exit(1)
+            except Link.DoesNotExist:
+                try:
+                    link = Link.objects.create(domain=domain, subdomain=subdomain)
+                except Exception as err:
+                    print(
+                        f"Error creating link: Could not create link {domain}: {err}",
+                        file=sys.stderr,
+                    )
+                    exit(1)
 
-        link.gateways.add(gateway)
-
-        if output_as_json:
-            print(link.to_fixture(json=True))
-        else:
-            print(f"Successfully created link: {link}")
-            print(f"Added link to the following gateway: {gateway.name}")
-        return link
+            if output_as_json:
+                print(link.to_fixture(json=True))
+            else:
+                print(f"Successfully created link: {link}")
+                print(f"Added link to the following gateway: {gateway.name}")
+            return link
 
     @use_django
     @cli_method
-    def up(self, link_fqdn: str, **kwargs):
+    def up(self, gateway_id: str, link_fqdn: str, **kwargs):
         """
         Bring the link up.
         ---
         Args:
+            gateway_id: ID of the gateway service.
             link_fqdn: Fully qualified domain name for the link (i.e. subdomain.mydomain.com).
         """
-        from fractal.gateway.models import Gateway, Link
+        from fractal.gateway.models import Domain, Gateway, Link
         from fractal.gateway.tasks import link_up
+        from fractal.gateway.utils import build_gateway_containers
 
-        gateway = get_gateway_container()
-        gateway_id = gateway.labels.get("f.gateway")
+        build_gateway_containers()
 
         try:
             gateway = Gateway.objects.get(pk=gateway_id)
-            _ = gateway.links.get(fqdn=link_fqdn)
         except Gateway.DoesNotExist:
             print(
                 f"Error: Could not find gateway {gateway_id} in your local database",
                 file=sys.stderr,
             )
             exit(1)
-        except Link.DoesNotExist:
+
+        url = tldextract.extract(link_fqdn)
+        domain = url.registered_domain or url.domain
+        subdomain = url.subdomain
+
+        try:
+            domain = gateway.get_domain(domain=domain)
+        except Domain.DoesNotExist:
             print(
-                f"Error: Could not find link with fqdn {link_fqdn} for gateway {gateway_id} in your local database",
+                f"Error: Could not find domain for {domain} for gateway {gateway.name} ({str(gateway.id)}) in your local database",
                 file=sys.stderr,
             )
             exit(1)
 
-        async def _link_up(link_fqdn: str):
-            # link_up.kicker().with_labels({"queue": "device", "device": ""})
-            task = await link_up.kiq(link_fqdn)
-            return await task.wait_result()
+        try:
+            Link.objects.get(domain=domain, subdomain=subdomain)
+        except Link.DoesNotExist:
+            print(
+                f"Error: Could not find link {link_fqdn} in your local database",
+                file=sys.stderr,
+            )
+            exit(1)
 
-        # will instead kick this with the func above ^^^^
         gateway_link_public_key, link_address, client_private_key = asyncio.run(
             link_up(link_fqdn)
         )
