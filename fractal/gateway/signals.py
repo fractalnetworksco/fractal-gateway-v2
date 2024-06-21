@@ -1,13 +1,9 @@
 import logging
 from secrets import token_hex
-from typing import TYPE_CHECKING
 
 from django.db import transaction
 from fractal.gateway.models import Gateway
 from fractal_database.models import Database, Device
-
-if TYPE_CHECKING:
-    from fractal_database_matrix.models import MatrixReplicationChannel
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +23,6 @@ def create_gateway_and_homeserver_for_current_db(
 
     from fractal.gateway.models import Domain, Gateway
     from fractal_database.models import ServiceInstanceConfig
-    from fractal_database_matrix.models import MatrixReplicationChannel
 
     current_database = Database.current_db()
     current_device = Device.current_device()
@@ -52,46 +47,5 @@ def create_gateway_and_homeserver_for_current_db(
         current_device=current_device,
         target_state="running",
     )
-
-    # create a representation for the Gateway
-    current_db_origin_channel: "MatrixReplicationChannel" = current_database.origin_channel()  # type: ignore
-    if not current_db_origin_channel or not isinstance(
-        current_db_origin_channel, MatrixReplicationChannel
-    ):
-        logger.warning(
-            "Database %s does not have an origin replication channel. Gateway will not attempt to create its representation"
-            % current_database
-        )
-        return gateway
-
-    homeserver_url = current_db_origin_channel.homeserver
-    try:
-        MatrixReplicationChannel.objects.get(
-            name=gateway_name,
-            homeserver=homeserver_url,
-        )
-        logger.info("MatrixReplicationChannel for %s already exists" % gateway_name)
-        return gateway
-    except MatrixReplicationChannel.DoesNotExist:
-        pass
-
-    logger.info("Creating MatrixReplicationChannel for %s" % gateway_name)
-    gateway.create_channel(
-        MatrixReplicationChannel,
-        homeserver=homeserver_url,
-        registration_token=current_db_origin_channel.registration_token,
-    )
-
-    # get the lowest priority homeserver for the current database
-    # homeserver = current_database.gateways.filter(homeservers__url=homeserver_url).order_by(
-    #     "homeservers__priority"
-    # )
-    # if homeserver.exists():
-    #     logger.warning("MatrixHomeserver for %s already exists. Not creating" % homeserver_url)
-    # else:
-    #     MatrixHomeserver.objects.create(
-    #         gateway=gateway, url=homeserver_url, database=current_database, priority=0
-    #     )
-    #     logger.info("Successfully created MatrixHomeserver for %s" % homeserver_url)
 
     return gateway

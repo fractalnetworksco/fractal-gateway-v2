@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import sys
 import traceback
 import uuid
@@ -190,11 +191,12 @@ class FractalGatewayController:
         if ssh_url:
             return self._init_remote(ssh_url, ssh_port, fqdn, gateway_name)
 
-        # attempt to fetch gateway. Exit if it already exists
-        fdb_controller = FractalDatabaseController()
-        fdb_controller.init(
-            project_name=gateway_name, quiet=True, exist_ok=True, as_instance=True
-        )
+        # initialize the Fractal Database if it doesn't exist
+        if not os.environ.get("FRACTAL_PROJECT_NAME"):
+            fdb_controller = FractalDatabaseController()
+            fdb_controller.init(
+                project_name=gateway_name, quiet=True, exist_ok=True, as_instance=True
+            )
 
         self._init(gateway_name, fqdn)  # type: ignore
 
@@ -377,16 +379,6 @@ class FractalGatewayController:
 
             for device in devices:
                 device.add_membership(gateway_service)
-
-            # add gateway devices as members to the service
-            # for membership in gateway.device_memberships.all():
-            #     membership.device.add_membership(gateway_service)
-            # # add database (group) devices as members to the service (excluding the gateway device members as they were just added)
-            # for membership in database.device_memberships.exclude(device__in=gateway_devices):
-            #     # dont need to add the device if it is a gateway device
-            #     # since it was gateway devices were added above
-            #     if membership.device not in gateway_devices:
-            #         membership.device.add_membership(gateway_service)
 
             # create matrix replication channels for each homeserver
             # for the gateway service
