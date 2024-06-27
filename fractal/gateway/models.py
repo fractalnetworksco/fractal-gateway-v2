@@ -11,12 +11,16 @@ from django.db import models
 from django.db.models import Q
 from docker.errors import NotFound
 from fractal_database import ssh
-from fractal_database.fields import LocalJSONField, LocalManyToManyField
+from fractal_database.fields import LocalManyToManyField
 from fractal_database.models import Device, ReplicatedModel, Service
 from fractal_database.replication.tasks import replicate_fixture
 
 from .tasks import link_up
-from .utils import GATEWAY_RESOURCE_PATH, generate_link_compose_snippet
+from .utils import (
+    GATEWAY_RESOURCE_PATH,
+    build_gateway_containers,
+    generate_link_compose_snippet,
+)
 
 if TYPE_CHECKING:
     from fractal_database_matrix.models import MatrixReplicationChannel
@@ -70,7 +74,7 @@ class Link(ReplicatedModel):
 
         return result.split(",")
 
-    async def up(self, gateway: "Gateway") -> tuple[str, str, str]:
+    async def up(self, gateway: "Gateway", tcp_forwarding: bool = False) -> tuple[str, str, str]:
         membership = (
             await gateway.device_memberships.select_related("device")
             .prefetch_related("device__domains")
@@ -102,26 +106,41 @@ class Link(ReplicatedModel):
                 "device": membership.device.name,
             }
 
-            task = await channel.kick_task(link_up, self.fqdn, task_labels=task_labels)
+            task = await channel.kick_task(
+                link_up, self.fqdn, tcp_forwarding, task_labels=task_labels
+            )
             result = await task.wait_result()
             return result.return_value
 
-    def generate_compose_snippet(self, gateway: "Gateway", expose: str) -> str:
+    def generate_compose_snippet(
+        self, gateway: "Gateway", expose: str, tcp_forwarding: bool = False
+    ) -> str:
         gateway_link_public_key, link_address, client_private_key = async_to_sync(self.up)(
-            gateway
+            gateway, tcp_forwarding=tcp_forwarding
         )
         if "localhost" in link_address:
             _, port = link_address.split(":")
             link_address = f"host.docker.internal:{port}"
 
+        new_forwarding = False
+        if expose.startswith("tcp://"):
+            expose = expose.replace("tcp://", "").split(":", maxsplit=1)[1]
+            new_forwarding = True
+        elif expose.startswith("udp://"):
+            expose = expose.replace("udp://", "").split(":", maxsplit=1)[1]
+            new_forwarding = True
+
+        link_config = {
+            "gateway_link_public_key": gateway_link_public_key,
+            "link_address": link_address,
+            "client_private_key": client_private_key,
+        }
+
         return generate_link_compose_snippet(
-            {
-                "gateway_link_public_key": gateway_link_public_key,
-                "link_address": link_address,
-                "client_private_key": client_private_key,
-            },
+            link_config,
             self.fqdn,
             expose,
+            new_forwarding=new_forwarding,
         )
 
 
@@ -142,6 +161,9 @@ class Gateway(Service):
         except NotFound:
             network = client.networks.create("fractal-gateway-network", driver="bridge")  # type: ignore
         return network
+
+    def _build_containers(self) -> None:
+        return build_gateway_containers()
 
     def _render_compose_file(self) -> str:
         # ensure docker network for gateway is created

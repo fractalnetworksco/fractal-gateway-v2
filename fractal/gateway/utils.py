@@ -191,6 +191,7 @@ def generate_wireguard_keypair(client: Optional[DockerClient] = None) -> tuple[s
 def launch_link(
     link_fqdn: str,
     link_pubkey: str,
+    tcp_forwarding: bool = False,
     client: Optional[DockerClient] = None,
 ) -> tuple[str, str]:
     """
@@ -200,6 +201,7 @@ def launch_link(
     - tuple[wireguard_pubkey, link_address], a tuple containing the generated WireGuard public key and the link's address.
     """
     client = client or docker.from_env()
+    build_gateway_containers()
 
     # get or create gateway network
     try:
@@ -229,7 +231,7 @@ def launch_link(
             environment={
                 "LINK_CLIENT_WG_PUBKEY": link_pubkey,
             },
-            ports={"18521/udp": None},
+            ports={"18521/udp": None, "18531/udp": None},  # wireguard  # random center port
             remove=False,
         )  # type: ignore
     except APIError as err:
@@ -245,11 +247,18 @@ def launch_link(
     time.sleep(1)
     link_container.reload()
     wireguard_port = link_container.attrs["NetworkSettings"]["Ports"]["18521/udp"][0]["HostPort"]  # type: ignore
+    forward_port = link_container.attrs["NetworkSettings"]["Ports"]["18531/udp"][0]["HostPort"]  # type: ignore
 
     link_container.stop()
     link_container.remove()
 
     # launch link container but with the port that was assigned by docker
+    environment = {
+        "LINK_CLIENT_WG_PUBKEY": link_pubkey,
+    }
+    if tcp_forwarding:
+        environment["CENTER_PORT"] = str(5555)
+        environment["FORWARD_PORT"] = "true"
     try:
         link_container: Container = client.containers.run(
             image=GATEWAY_LINK_IMAGE_TAG,
@@ -260,10 +269,9 @@ def launch_link(
             labels={"f.gateway.link": "true"},
             tty=True,
             detach=True,
-            environment={
-                "LINK_CLIENT_WG_PUBKEY": link_pubkey,
-            },
-            ports={"18521/udp": int(wireguard_port)},
+            environment=environment,
+            command=[forward_port, "abc", "5555"] if tcp_forwarding else None,
+            ports={"18521/udp": int(wireguard_port), "5555/tcp": forward_port},
             remove=False,
         )  # type: ignore
     except APIError as err:
@@ -281,7 +289,10 @@ def launch_link(
 
 
 def generate_link_compose_snippet(
-    link_config: dict[str, Any], link_fqdn: str, expose: str
+    link_config: dict[str, Any],
+    link_fqdn: str,
+    expose: str,
+    new_forwarding: bool = False,
 ) -> str:
     """
     Generate a docker-compose snippet for a link container using the specified link configuration.
@@ -295,6 +306,25 @@ def generate_link_compose_snippet(
     Returns:
     - str, the docker-compose YAML snippet for the link container.
     """
+    if new_forwarding:
+        return f"""
+  link:
+    image: {CLIENT_LINK_IMAGE_TAG}
+    environment:
+      LINK_DOMAIN: {link_fqdn}
+      EXPOSE: {expose}
+      GATEWAY_CLIENT_WG_PRIVKEY: {link_config['client_private_key']}
+      GATEWAY_LINK_WG_PUBKEY: {link_config['gateway_link_public_key']}
+      GATEWAY_ENDPOINT: {link_config['link_address']}
+      TLS_INTERNAL: true
+      FORWARD_ONLY: true
+      NEW_FORWARDING_BEHAVIOR: true
+      CENTER_PORT: 5555
+    cap_add:
+      - NET_ADMIN
+    restart: unless-stopped
+"""
+
     if "localhost" in link_fqdn:
         return f"""
   link:

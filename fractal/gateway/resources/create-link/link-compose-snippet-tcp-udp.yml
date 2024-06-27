@@ -2,7 +2,7 @@
     image: fractalnetworks/gateway-client:latest
     environment:
       LINK_DOMAIN: ${LINK_DOMAIN}
-      EXPOSE: ${EXPOSE}
+      EXPOSE: ${SERVICE}:${BACK_PORT}
       GATEWAY_CLIENT_WG_PRIVKEY: ${WG_PRIVKEY}
       GATEWAY_LINK_WG_PUBKEY: ${GATEWAY_LINK_WG_PUBKEY}
       GATEWAY_ENDPOINT: ${GATEWAY_ENDPOINT}
@@ -13,6 +13,8 @@
       # CADDY_TLS_PROXY: true
       # CADDY_TLS_INSECURE: true
       FORWARD_ONLY: ${FORWARD_ONLY}
+      NEW_FORWARDING_BEHAVIOR: true
+      CENTER_PORT: ${CENTER_PORT}
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
