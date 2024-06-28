@@ -106,10 +106,14 @@ class Link(ReplicatedModel):
                 "device": membership.device.name,
             }
 
+            logger.info(
+                "Kicking link up task for %s to device %s", self.fqdn, membership.device.name
+            )
             task = await channel.kick_task(
                 link_up, self.fqdn, tcp_forwarding, task_labels=task_labels
             )
-            result = await task.wait_result()
+            logger.info("Waiting for result for up to 2 minutes...")
+            result = await task.wait_result(timeout=120.0)
             return result.return_value
 
     def generate_compose_snippet(
