@@ -12,7 +12,7 @@ from django.db.models import Q
 from docker.errors import NotFound
 from fractal_database import ssh
 from fractal_database.fields import LocalManyToManyField
-from fractal_database.models import Device, ReplicatedModel, Service
+from fractal_database.models import DatabaseConfig, Device, ReplicatedModel, Service
 from fractal_database.replication.tasks import replicate_fixture
 
 from .tasks import link_up
@@ -23,6 +23,7 @@ from .utils import (
 )
 
 if TYPE_CHECKING:
+    from fractal_database.models import Database
     from fractal_database_matrix.models import MatrixReplicationChannel
 
     from .models import Gateway, Link
@@ -263,6 +264,55 @@ class Gateway(Service):
 
             # link.gateways.add(self)
             return link
+
+    @classmethod
+    def get_or_create_service(cls, database: "Database") -> "Gateway":
+        try:
+            gateway = cls.objects.get(parent_db=database)
+            return gateway
+        except cls.DoesNotExist:
+            pass
+
+        # add the gateway service to the group and add all gateway devices and group devices to it
+        with database.as_current_database(threadlocal=True, use_transaction=True):
+            # fetch the root database to get all gateway services
+            root_database = DatabaseConfig.objects.select_related("current_db").get().current_db
+
+            gateways = cls.objects.filter(parent_db=root_database)
+            if not gateways:
+                # dont create a gateway service if there are no gateways
+                raise Exception("No gateways found")
+
+            # FIXME: Create User memberships instead. Only users can add their devices to the gateway
+
+            # get all gateway devices
+            gateway_devices = (
+                Device.objects.prefetch_related("memberships", "memberships__database")
+                .filter(memberships__database__in=gateways)
+                .distinct()
+            )
+
+            # get all devices that are members of the created group
+            group_devices = (
+                Device.objects.prefetch_related("memberships", "memberships__database")
+                .filter(memberships__database=database)
+                .distinct()
+            )
+
+            # combine the two querysets and removes any duplicates
+            devices_to_add_to_gateway_service = gateway_devices.union(group_devices, all=False)
+
+            # create the gateway service for the group
+            gateway_service = cls.objects.create(
+                name=f"{database.name}_gateway",
+            )
+
+            # add all gateway devices and group devices to the gateway service
+            if devices_to_add_to_gateway_service:
+                for device in devices_to_add_to_gateway_service:
+                    device.add_membership(gateway_service)
+
+            return gateway_service
 
 
 # class MatrixHomeserver(ReplicatedModel):
