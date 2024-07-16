@@ -108,7 +108,10 @@ class Link(ReplicatedModel):
             }
 
             logger.info(
-                "Kicking link up task for %s to device %s", self.fqdn, membership.device.name
+                "Kicking link up task for %s to device %s to channel %s",
+                self.fqdn,
+                membership.device.name,
+                channel,
             )
             task = await channel.kick_task(
                 link_up, self.fqdn, tcp_forwarding, task_labels=task_labels
@@ -304,7 +307,7 @@ class Gateway(Service):
 
             # create the gateway service for the group
             gateway_service = cls.objects.create(
-                name=f"{database.name}_gateway",
+                name=f"{database.name}_gateway", parent_db=database
             )
 
             # add all gateway devices and group devices to the gateway service
