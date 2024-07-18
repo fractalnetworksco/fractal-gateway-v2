@@ -315,6 +315,8 @@ class Gateway(Service):
                 for device in devices_to_add_to_gateway_service:
                     device.add_membership(gateway_service)
 
+            gateway_service.databases.add(database)
+
             return gateway_service
 
 
