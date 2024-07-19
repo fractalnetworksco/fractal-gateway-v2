@@ -5,6 +5,7 @@ import uuid
 from typing import TYPE_CHECKING, Optional
 
 import docker
+import tldextract
 import yaml
 from asgiref.sync import async_to_sync
 from django.db import models
@@ -37,6 +38,9 @@ class Domain(ReplicatedModel):
     uri = models.CharField(max_length=255, unique=True)
     devices = models.ManyToManyField("fractal_database.Device", related_name="domains")
 
+    def __str__(self) -> str:
+        return self.uri
+
 
 class Link(ReplicatedModel):
     id = models.UUIDField(primary_key=True, editable=False, default=uuid.uuid4)
@@ -52,6 +56,17 @@ class Link(ReplicatedModel):
     subdomain = models.CharField(max_length=255)
 
     # TODO: needs an owner
+
+    @classmethod
+    def get_by_url(cls, url: str) -> "Link":
+        url = tldextract.extract(url)
+        # registered_domains have the domain + suffix joined together.
+        # some domains like localhost don't have a registered domain (dont have a suffix)
+        # so if registered_domain is "" then use the domain
+        domain = url.registered_domain or url.domain
+        subdomain = url.subdomain
+
+        return cls.objects.get(domain__uri=domain, subdomain=subdomain)
 
     def __str__(self) -> str:
         return self.fqdn
