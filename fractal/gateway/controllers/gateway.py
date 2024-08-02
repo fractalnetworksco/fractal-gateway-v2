@@ -17,7 +17,7 @@ from fractal_database import ssh
 from fractal_database.controllers.fractal_database_controller import (
     FractalDatabaseController,
 )
-from fractal_database.utils import use_django
+from fractal_database.utils import is_db_initialized, use_django
 
 if TYPE_CHECKING:
     from fractal_database.models import Device
@@ -192,7 +192,7 @@ class FractalGatewayController:
             return self._init_remote(ssh_url, ssh_port, fqdn, gateway_name)
 
         # initialize the Fractal Database if it doesn't exist
-        if not os.environ.get("FRACTAL_PROJECT_NAME"):
+        if not is_db_initialized():
             fdb_controller = FractalDatabaseController()
             fdb_controller.init(
                 project_name=gateway_name, quiet=True, exist_ok=True, as_instance=True

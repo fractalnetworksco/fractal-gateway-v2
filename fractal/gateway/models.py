@@ -75,6 +75,9 @@ class Link(ReplicatedModel):
     def fqdn(self) -> str:
         return f"{self.subdomain}.{self.domain.uri}"
 
+    async def _up_local(self, tcp_forwarding: bool) -> tuple[str, str, str]:
+        return await link_up(self.fqdn, tcp_forwarding=tcp_forwarding)
+
     def _up_via_ssh(self, gateway: "Gateway", device: "Device") -> tuple[str, str, str]:
         ssh_config = device.ssh_config
         try:
@@ -90,6 +93,10 @@ class Link(ReplicatedModel):
 
         return result.split(",")
 
+    def gateway_is_local(self, gateway: "Gateway") -> bool:
+        client = docker.from_env()
+        return len(client.containers.list(filters={"label": f"f.gateway={str(gateway.pk)}"})) > 0
+
     async def up(self, gateway: "Gateway", tcp_forwarding: bool = False) -> tuple[str, str, str]:
         membership = (
             await gateway.device_memberships.select_related("device")
@@ -99,6 +106,8 @@ class Link(ReplicatedModel):
         )
         if membership:
             return self._up_via_ssh(gateway, membership.device)
+        elif self.gateway_is_local(gateway):
+            return await self._up_local(tcp_forwarding=tcp_forwarding)
         else:
             channel: Optional["MatrixReplicationChannel"] = await gateway.matrixreplicationchannel_set.afirst()  # type: ignore
             if not channel:
