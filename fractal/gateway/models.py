@@ -8,7 +8,7 @@ import docker
 import tldextract
 import yaml
 from asgiref.sync import async_to_sync
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q
 from docker.errors import NotFound
 from fractal_database import ssh
@@ -185,6 +185,61 @@ class Gateway(Service):
 
     def __str__(self) -> str:
         return f"{self.name} (Gateway)"
+
+    @classmethod
+    def create_service(cls, database: "Database") -> "Gateway":
+        """
+        Create the gateway service for a given database.
+        Returns the created gateway service.
+        """
+        with transaction.atomic():
+            with database.as_current_database(threadlocal=True):
+                # fetch the root database to get all actual gateway services
+                # doing it this way instead of Database.current_db() since the current_db
+                # could be set using a threadlocal. Whatever is in the DatabaseConfig is the
+                # actual database that is being used
+                root_database = (
+                    DatabaseConfig.objects.select_related("current_db").get().current_db
+                )
+
+                # fetch the gateway services
+                # these are considered to be Gateways whose parent_db is that of the root database
+                gateways = cls.objects.filter(parent_db=root_database)
+                if not gateways:
+                    raise Gateway.DoesNotExist("No gateways found in the current root database")
+
+                # get all gateway devices
+                gateway_devices = (
+                    Device.objects.prefetch_related("memberships", "memberships__database")
+                    .filter(memberships__database__in=gateways)
+                    .distinct()
+                )
+
+                # get all devices that are members of the created group
+                group_devices = (
+                    Device.objects.prefetch_related("memberships", "memberships__database")
+                    .filter(memberships__database=database)
+                    .distinct()
+                )
+
+                # combine the two querysets and removes any duplicates
+                devices_to_add_to_gateway_service = gateway_devices.union(
+                    group_devices, all=False
+                )
+
+                # create the gateway service for the provided database
+                gateway_service = cls.objects.create(
+                    name=f"{database.name}_gateway",
+                )
+
+                # add all gateway devices and database devices to the gateway service
+                if devices_to_add_to_gateway_service:
+                    for device in devices_to_add_to_gateway_service:
+                        device.add_membership(gateway_service)
+
+                gateway_service.databases.add(database)
+
+                return gateway_service
 
     def _create_gateway_docker_network(self) -> None:
         client = docker.from_env()

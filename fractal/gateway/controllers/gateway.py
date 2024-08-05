@@ -272,22 +272,35 @@ class FractalGatewayController:
             try:
                 gateway = Gateway.objects.get(pk=gateway_uuid)
             except Gateway.DoesNotExist:
+                # load the gateway into the local database
                 asyncio.run(replicate_fixture(json.dumps(gateway_replication_event), None))
+
+                # after loading, fetch the gateway
                 gateway = Gateway.objects.get(pk=gateway_uuid)
+
+                # ensure a local replication channel exists for the gateway for any
+                # replication logs related to it
                 LocalReplicationChannel.objects.get_or_create(
                     name=f"dummy-{gateway.name}", database=gateway
                 )
+
+                # get all gateway devices (devices that have memberships to the gateway database)
+                # these are synced in as part of the gateway_replication_event
                 gateway_device_memberships = gateway.device_memberships.select_related(
                     "device"
                 ).all()
 
+                # set the ssh config for each gateway device
                 for membership in gateway_device_memberships:
                     print(f"Setting ssh config for Gateway device {membership.device.name}")
+                    # FIXME: need to handle multiple ssh configs
                     membership.device.ssh_config["host"] = gateway_ssh
                     membership.device.ssh_config["port"] = ssh_port
                     membership.device.save()
 
+            # add the provided database to the gateway
             gateway.databases.add(database)
+            # ensure that this is replicated into the database that we're adding the gateway to
             gateway.save()
             current_device.add_membership(gateway)
 
@@ -295,20 +308,39 @@ class FractalGatewayController:
 
     @use_django
     @cli_method
-    def add(self, gateway: str, database_name: str, ssh_port: str = "22", **kwargs):
+    def add(self, gateway_name: str, database_name: str, ssh_port: str = "22", **kwargs):
         """
         Add a Database to a Gateway.
         ---
         Args:
-            gateway: The SSH URL of the Gateway. Assumes that you have SSH access to the Gateway.
+            gateway_name: The SSH URL of the Gateway. Assumes that you have SSH access to the Gateway.
             database_name: Name of the Database to add
             ssh_port: The SSH port of the Gateway. Defaults to 22.
         """
-        if not gateway.startswith("ssh://"):
-            print("FIXME: Implement adding a gateway not through ssh")
+        if gateway_name.startswith("ssh://"):
+            self._add_via_ssh(gateway_name, database_name, ssh_port=ssh_port)
+
+        # attempt to add locally
+        from fractal.gateway.models import Gateway
+        from fractal_database.models import Database
+
+        try:
+            gateway = Gateway.objects.get(name__iexact=gateway_name)
+            database = Database.objects.get(name=database_name)
+        except Gateway.DoesNotExist:
+            print(f"Cannot add Gateway {gateway_name} as it does not exist", file=sys.stderr)
+            sys.exit(1)
+        except Database.DoesNotExist:
+            print(
+                f"Cannot add Gateway {gateway_name} as the specified database {database_name} does not exist.",
+                file=sys.stderr,
+            )
             exit(1)
 
-        self._add_via_ssh(gateway, database_name, ssh_port=ssh_port)
+        try:
+            gateway.create_service(database)
+        except Exception as err:
+            print(f"Failed to add Database {database_name} to Gateway {gateway_name}:\n{err}")
 
     @use_django
     @cli_method
