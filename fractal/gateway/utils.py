@@ -323,6 +323,8 @@ def generate_link_compose_snippet(
     cap_add:
       - NET_ADMIN
     restart: unless-stopped
+    volumes:
+      - link-data: /data
 """
 
     if "localhost" in link_fqdn:
@@ -339,6 +341,8 @@ def generate_link_compose_snippet(
     cap_add:
       - NET_ADMIN
     restart: unless-stopped
+    volumes:
+      - link-data: /data
 """
 
     return f"""
@@ -353,4 +357,6 @@ def generate_link_compose_snippet(
     cap_add:
       - NET_ADMIN
     restart: unless-stopped
+    volumes:
+      - link-data: /data
 """
