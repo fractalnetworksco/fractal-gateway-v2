@@ -324,7 +324,7 @@ def generate_link_compose_snippet(
       - NET_ADMIN
     restart: unless-stopped
     volumes:
-      - link-data: /data
+      - link-data:/data
 """
 
     if "localhost" in link_fqdn:
@@ -342,7 +342,7 @@ def generate_link_compose_snippet(
       - NET_ADMIN
     restart: unless-stopped
     volumes:
-      - link-data: /data
+      - link-data:/data
 """
 
     return f"""
@@ -358,5 +358,5 @@ def generate_link_compose_snippet(
       - NET_ADMIN
     restart: unless-stopped
     volumes:
-      - link-data: /data
+      - link-data:/data
 """
