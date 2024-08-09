@@ -193,7 +193,8 @@ def launch_link(
     link_pubkey: str,
     tcp_forwarding: bool = False,
     client: Optional[DockerClient] = None,
-) -> tuple[str, str]:
+    forward_port: Optional[str] = None,
+) -> tuple[str, str, str]:
     """
     Launches a link container with the specified FQDN and public key.
 
@@ -231,7 +232,7 @@ def launch_link(
             environment={
                 "LINK_CLIENT_WG_PUBKEY": link_pubkey,
             },
-            ports={"18521/udp": None, "18531/udp": None},  # wireguard  # random center port
+            ports={"18521/udp": None, "18531/udp": None},  # wireguard & random center port
             remove=False,
         )  # type: ignore
     except APIError as err:
@@ -247,7 +248,8 @@ def launch_link(
     time.sleep(1)
     link_container.reload()
     wireguard_port = link_container.attrs["NetworkSettings"]["Ports"]["18521/udp"][0]["HostPort"]  # type: ignore
-    forward_port = link_container.attrs["NetworkSettings"]["Ports"]["18531/udp"][0]["HostPort"]  # type: ignore
+    if not forward_port:
+        forward_port: str = link_container.attrs["NetworkSettings"]["Ports"]["18531/udp"][0]["HostPort"]  # type: ignore
 
     link_container.stop()
     link_container.remove()
@@ -285,7 +287,7 @@ def launch_link(
     # get generated wireguard pubkey from link container
     command = "bash -c 'cat /etc/wireguard/link0.key | wg pubkey'"
     wireguard_pubkey = link_container.exec_run(command).output.decode().strip()
-    return wireguard_pubkey, f"{link_fqdn}:{wireguard_port}"
+    return wireguard_pubkey, f"{link_fqdn}:{wireguard_port}", forward_port
 
 
 def generate_link_compose_snippet(

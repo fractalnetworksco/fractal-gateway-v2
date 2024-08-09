@@ -54,6 +54,7 @@ class Link(ReplicatedModel):
         blank=True,
     )
     subdomain = models.CharField(max_length=255)
+    forward_port = models.CharField(max_length=5, null=True, blank=True)
 
     # TODO: needs an owner
 
@@ -75,18 +76,23 @@ class Link(ReplicatedModel):
     def fqdn(self) -> str:
         return f"{self.subdomain}.{self.domain.uri}"
 
-    async def _up_local(self, tcp_forwarding: bool) -> tuple[str, str, str]:
-        return await link_up(self.fqdn, tcp_forwarding=tcp_forwarding)
+    async def _up_local(self, tcp_forwarding: bool) -> tuple[str, str, str, str]:
+        return await link_up(
+            self.fqdn, tcp_forwarding=tcp_forwarding, forward_port=self.forward_port
+        )
 
-    def _up_via_ssh(self, gateway: "Gateway", device: "Device") -> tuple[str, str, str]:
+    def _up_via_ssh(
+        self, gateway: "Gateway", device: "Device", tcp_forwarding: bool = False
+    ) -> tuple[str, str, str, str]:
+        link_up_command = f"fractal link up {str(gateway.pk)} {self.fqdn}"
+        if tcp_forwarding:
+            link_up_command += " --tcp-forwarding"
+        if self.forward_port:
+            link_up_command += f" --forward-port {self.forward_port}"
+
         ssh_config = device.ssh_config
         try:
-            result = ssh(
-                ssh_config["host"],
-                "-p",
-                ssh_config["port"],
-                f"fractal link up {str(gateway.pk)} {self.fqdn}",
-            ).strip()
+            result = ssh(ssh_config["host"], "-p", ssh_config["port"], link_up_command).strip()
         except Exception as err:
             print(f"Error when running link up: {err.stderr.decode()}")
             raise err
@@ -98,16 +104,29 @@ class Link(ReplicatedModel):
         return len(client.containers.list(filters={"label": f"f.gateway={str(gateway.pk)}"})) > 0
 
     async def up(self, gateway: "Gateway", tcp_forwarding: bool = False) -> tuple[str, str, str]:
+        # get a device membership where the device has ssh_config to gateway
         membership = (
             await gateway.device_memberships.select_related("device")
             .prefetch_related("device__domains")
             .filter(~Q(device__ssh_config={}), device__domains__pk=self.domain.pk)
             .afirst()
         )
+        # link up via ssh if a device with ssh_config to gateway is found
         if membership:
-            return self._up_via_ssh(gateway, membership.device)
+            gateway_link_public_key, link_address, client_private_key, forward_port = (
+                self._up_via_ssh(gateway, membership.device, tcp_forwarding=tcp_forwarding)
+            )
+
+        # link_up directly if the gateway is local
         elif self.gateway_is_local(gateway):
-            return await self._up_local(tcp_forwarding=tcp_forwarding)
+            gateway_link_public_key, link_address, client_private_key, forward_port = (
+                await link_up(
+                    self.fqdn, tcp_forwarding=tcp_forwarding, forward_port=self.forward_port
+                )
+            )
+
+        # link_up via a matrix replication channel if the gateway is remote
+        # and has a matrix replication channel
         else:
             channel: Optional["MatrixReplicationChannel"] = await gateway.matrixreplicationchannel_set.afirst()  # type: ignore
             if not channel:
@@ -138,11 +157,19 @@ class Link(ReplicatedModel):
                 channel,
             )
             task = await channel.kick_task(
-                link_up, self.fqdn, tcp_forwarding, task_labels=task_labels
+                link_up, self.fqdn, tcp_forwarding, self.forward_port, task_labels=task_labels
             )
             logger.info("Waiting for result for up to 2 minutes...")
             result = await task.wait_result(timeout=120.0)
-            return result.return_value
+            gateway_link_public_key, link_address, client_private_key, forward_port = (
+                result.return_value
+            )
+
+        # save forward port to the link for subsequent use
+        self.forward_port = forward_port
+        await self.asave()
+
+        return (gateway_link_public_key, link_address, client_private_key)
 
     def generate_compose_snippet(
         self, gateway: "Gateway", expose: str, tcp_forwarding: bool = False

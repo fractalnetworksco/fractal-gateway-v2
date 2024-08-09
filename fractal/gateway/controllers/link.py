@@ -1,7 +1,7 @@
 import asyncio
 import sys
 from sys import exit
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import tldextract
 from clicz import cli_method
@@ -114,13 +114,22 @@ class FractalLinkController:
 
     @use_django
     @cli_method
-    def up(self, gateway_id: str, link_fqdn: str, **kwargs):
+    def up(
+        self,
+        gateway_id: str,
+        link_fqdn: str,
+        tcp_forwarding: bool = False,
+        forward_port: Optional[str] = None,
+        **kwargs,
+    ):
         """
         Bring the link up.
         ---
         Args:
             gateway_id: ID of the gateway service.
             link_fqdn: Fully qualified domain name for the link (i.e. subdomain.mydomain.com).
+            tcp_forwarding: Whether to enable TCP forwarding. Defaults to False.
+            forward_port: The port to map as the center port in the link. Will generate a random forward port by default.
         """
         from fractal.gateway.models import Domain, Gateway, Link
         from fractal.gateway.tasks import link_up
@@ -159,13 +168,14 @@ class FractalLinkController:
             )
             exit(1)
 
-        gateway_link_public_key, link_address, client_private_key = asyncio.run(
-            link_up(link_fqdn)
+        gateway_link_public_key, link_address, client_private_key, forward_port = asyncio.run(
+            link_up(link_fqdn, tcp_forwarding, forward_port)
         )
         link_config = {
             "gateway_link_public_key": gateway_link_public_key,
             "link_address": link_address,
             "client_private_key": client_private_key,
+            "forward_port": forward_port,
         }
         print(",".join(link_config.values()))
 
