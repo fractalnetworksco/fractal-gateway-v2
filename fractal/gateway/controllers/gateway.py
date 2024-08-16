@@ -469,5 +469,33 @@ class FractalGatewayController:
 
         print(f"Successfully registered Gateway {gateway.name} for {database.name}")
 
+    @use_django
+    @cli_method
+    def add_domain(self, domain: str, gateway_name: str, **kwargs):
+        """
+        Adds a domain to a Gateway. NOTE: For now, this must run on a Gateway device.
+        ---
+        Args:
+            domain: Domain to add to Gateway.
+            gateway_name: Name of the Gateway.
+        """
+        from fractal.gateway.models import Domain, Gateway
+        from fractal_database.models import Device
+
+        gateway = Gateway.objects.get(name=gateway_name)
+
+        current_device = Device.current_device()
+
+        if not current_device.has_membership(gateway):
+            print(
+                f"Device {current_device.name} is not a member of Gateway {gateway_name}. You must add a domain from the gateway device",
+                file=sys.stderr,
+            )
+            exit(1)
+
+        # add the fqdn to the gateway's device
+        gateway_fqdn, _ = Domain.objects.get_or_create(uri=domain)
+        gateway_fqdn.devices.add(current_device)
+
 
 Controller = FractalGatewayController
