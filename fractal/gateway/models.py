@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import sys
 import uuid
 from typing import TYPE_CHECKING, Optional
@@ -206,7 +207,9 @@ class Link(ReplicatedModel):
 class Gateway(Service):
     links: models.QuerySet[Link]
     # homeservers: "models.QuerySet[MatrixHomeserver]"
-    COMPOSE_FILE = f"{GATEWAY_RESOURCE_PATH}/docker-compose.yml"
+    COMPOSE_FILE = os.environ.get(
+        "GATEWAY_COMPOSE_PATH", f"{GATEWAY_RESOURCE_PATH}/docker-compose.yml"
+    )
 
     databases = LocalManyToManyField("fractal_database.Database", related_name="gateways")
 
