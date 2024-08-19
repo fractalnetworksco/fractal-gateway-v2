@@ -75,6 +75,8 @@ class Link(ReplicatedModel):
 
     @property
     def fqdn(self) -> str:
+        if not self.subdomain:
+            return self.domain.uri
         return f"{self.subdomain}.{self.domain.uri}"
 
     async def _up_local(self, tcp_forwarding: bool) -> tuple[str, str, str, str]:

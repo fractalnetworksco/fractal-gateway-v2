@@ -210,7 +210,9 @@ def launch_link(
     except NotFound:
         raise GatewayNetworkNotFound("fractal-gateway-network")
 
-    link_container_name = "-".join(link_fqdn.split("."[-4:]))
+    link_container_name = "-".join(link_fqdn.split(".")[-4:])
+    if link_container_name.startswith("-"):
+        link_container_name = link_container_name[1:]
 
     try:
         link_container: Container = client.containers.get(link_container_name)  # type: ignore
@@ -325,6 +327,8 @@ def generate_link_compose_snippet(
     cap_add:
       - NET_ADMIN
     restart: unless-stopped
+    extra_hosts:
+        host.docker.internal: host-gateway
     volumes:
       - link-data:/data
 """
@@ -343,6 +347,8 @@ def generate_link_compose_snippet(
     cap_add:
       - NET_ADMIN
     restart: unless-stopped
+    extra_hosts:
+        host.docker.internal: host-gateway
     volumes:
       - link-data:/data
 """
@@ -361,4 +367,6 @@ def generate_link_compose_snippet(
     restart: unless-stopped
     volumes:
       - link-data:/data
+    extra_hosts:
+        host.docker.internal: host-gateway
 """
