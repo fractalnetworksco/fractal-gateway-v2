@@ -38,6 +38,10 @@ def create_gateway_and_homeserver_for_current_db(
         logger.info("Adding current device %s to gateway %s" % (current_device, gateway))
         current_device.add_membership(gateway)
 
+        for user in current_database.users:
+            logger.info("Adding current database member %s to gateway %s" % (user, gateway))
+            user.add_membership(gateway)
+
     # add the fqdn to the gateway's device
     gateway_fqdn, _ = Domain.objects.get_or_create(uri=fqdn)
     gateway_fqdn.devices.add(current_device)

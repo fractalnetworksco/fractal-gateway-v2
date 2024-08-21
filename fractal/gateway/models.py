@@ -14,7 +14,13 @@ from django.db.models import Q
 from docker.errors import NotFound
 from fractal_database import ssh
 from fractal_database.fields import LocalManyToManyField
-from fractal_database.models import DatabaseConfig, Device, ReplicatedModel, Service
+from fractal_database.models import (
+    DatabaseConfig,
+    DatabaseMembership,
+    Device,
+    ReplicatedModel,
+    Service,
+)
 from fractal_database.replication.tasks import replicate_fixture
 
 from .tasks import link_up
@@ -47,7 +53,7 @@ class Link(ReplicatedModel):
     id = models.UUIDField(primary_key=True, editable=False, default=uuid.uuid4)
     # gateways = models.ManyToManyField("gateway.Gateway", related_name="links")
     domain = models.ForeignKey(Domain, on_delete=models.CASCADE, related_name="domains")
-    service = models.ForeignKey(
+    service_config = models.ForeignKey(
         "fractal_database.ServiceInstanceConfig",
         on_delete=models.CASCADE,
         related_name="links",
@@ -60,15 +66,44 @@ class Link(ReplicatedModel):
     # TODO: needs an owner
 
     @classmethod
-    def get_by_url(cls, url: str) -> "Link":
-        url = tldextract.extract(url)
+    def get_by_url(cls, url: str, select_related: Optional[list[str]] = None) -> "Link":
+        extracted_url = tldextract.extract(url)
         # registered_domains have the domain + suffix joined together.
         # some domains like localhost don't have a registered domain (dont have a suffix)
         # so if registered_domain is "" then use the domain
-        domain = url.registered_domain or url.domain
-        subdomain = url.subdomain
+        domain = extracted_url.registered_domain or extracted_url.domain
+        subdomain = extracted_url.subdomain
+
+        if "." in subdomain:
+            subdomain, to_add = subdomain.split(".", 1)
+            domain = f"{to_add}.{domain}"
+
+        if select_related:
+            return cls.objects.select_related(*select_related).get(
+                domain__uri=domain, subdomain=subdomain
+            )
 
         return cls.objects.get(domain__uri=domain, subdomain=subdomain)
+
+    @classmethod
+    async def aget_by_url(cls, url: str, select_related: Optional[list[str]] = None) -> "Link":
+        extracted_url = tldextract.extract(url)
+        # registered_domains have the domain + suffix joined together.
+        # some domains like localhost don't have a registered domain (dont have a suffix)
+        # so if registered_domain is "" then use the domain
+        domain = extracted_url.registered_domain or extracted_url.domain
+        subdomain = extracted_url.subdomain
+
+        if "." in subdomain:
+            subdomain, to_add = subdomain.split(".", 1)
+            domain = f"{to_add}.{domain}"
+
+        if select_related:
+            return await cls.objects.select_related(*select_related).aget(
+                domain__uri=domain, subdomain=subdomain
+            )
+
+        return await cls.objects.aget(domain__uri=domain, subdomain=subdomain)
 
     def __str__(self) -> str:
         return self.fqdn
@@ -159,8 +194,14 @@ class Link(ReplicatedModel):
                 membership.device.name,
                 channel,
             )
+            # kick link up task as user to the gateway device
             task = await channel.kick_task(
-                link_up, self.fqdn, tcp_forwarding, self.forward_port, task_labels=task_labels
+                link_up,
+                self.fqdn,
+                tcp_forwarding,
+                self.forward_port,
+                task_labels=task_labels,
+                as_user=True,
             )
             logger.info("Waiting for result for up to 2 minutes...")
             result = await task.wait_result(timeout=120.0)
@@ -268,6 +309,10 @@ class Gateway(Service):
                 if devices_to_add_to_gateway_service:
                     for device in devices_to_add_to_gateway_service:
                         device.add_membership(gateway_service)
+
+                # add all users to the gateway service
+                for member in database.users:
+                    member.add_membership(gateway_service)
 
                 gateway_service.databases.add(database)
 
@@ -385,50 +430,7 @@ class Gateway(Service):
             gateway = cls.objects.get(parent_db=database)
             return gateway
         except cls.DoesNotExist:
-            pass
-
-        # add the gateway service to the group and add all gateway devices and group devices to it
-        with database.as_current_database(threadlocal=True, use_transaction=True):
-            # fetch the root database to get all gateway services
-            root_database = DatabaseConfig.objects.select_related("current_db").get().current_db
-
-            gateways = cls.objects.filter(parent_db=root_database)
-            if not gateways:
-                # dont create a gateway service if there are no gateways
-                raise Exception("No gateways found")
-
-            # FIXME: Create User memberships instead. Only users can add their devices to the gateway
-
-            # get all gateway devices
-            gateway_devices = (
-                Device.objects.prefetch_related("memberships", "memberships__database")
-                .filter(memberships__database__in=gateways)
-                .distinct()
-            )
-
-            # get all devices that are members of the created group
-            group_devices = (
-                Device.objects.prefetch_related("memberships", "memberships__database")
-                .filter(memberships__database=database)
-                .distinct()
-            )
-
-            # combine the two querysets and removes any duplicates
-            devices_to_add_to_gateway_service = gateway_devices.union(group_devices, all=False)
-
-            # create the gateway service for the group
-            gateway_service = cls.objects.create(
-                name=f"{database.name}_gateway", parent_db=database
-            )
-
-            # add all gateway devices and group devices to the gateway service
-            if devices_to_add_to_gateway_service:
-                for device in devices_to_add_to_gateway_service:
-                    device.add_membership(gateway_service)
-
-            gateway_service.databases.add(database)
-
-            return gateway_service
+            return cls.create_service(database)
 
 
 # class MatrixHomeserver(ReplicatedModel):
