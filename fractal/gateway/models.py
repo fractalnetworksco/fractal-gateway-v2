@@ -208,6 +208,9 @@ class Link(ReplicatedModel):
             gateway_link_public_key, link_address, client_private_key, forward_port = (
                 result.return_value
             )
+            logger.info(
+                f"GATEWAY LINK PUBLIC KEY: {gateway_link_public_key} client private key: {client_private_key}"
+            )
 
         # save forward port to the link for subsequent use
         self.forward_port = forward_port

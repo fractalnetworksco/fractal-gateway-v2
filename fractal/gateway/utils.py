@@ -173,7 +173,7 @@ def generate_wireguard_keypair(client: Optional[DockerClient] = None) -> tuple[s
     - tuple[private_key, public_key], a tuple containing the generated private and public keys.
     """
     client = client or docker.from_env()
-    command = "bash -c 'wg genkey | tee /dev/stderr | wg pubkey'"
+    command = "bash -c 'wg genkey | tee /tmp/privatekey | wg pubkey && cat /tmp/privatekey'"
 
     keypair: bytes = client.containers.run(
         image=GATEWAY_LINK_IMAGE_TAG,
@@ -252,6 +252,8 @@ def launch_link(
     wireguard_port = link_container.attrs["NetworkSettings"]["Ports"]["18521/udp"][0]["HostPort"]  # type: ignore
     if not forward_port:
         forward_port: str = link_container.attrs["NetworkSettings"]["Ports"]["18531/udp"][0]["HostPort"]  # type: ignore
+
+    logger.info("CLIENT LINK PUBLIC KEY IN LAUNCH_LINK: {}".format(link_pubkey))
 
     link_container.stop()
     link_container.remove()

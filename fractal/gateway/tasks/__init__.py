@@ -97,4 +97,7 @@ async def link_up(
         tcp_forwarding=tcp_forwarding,
         forward_port=forward_port,
     )
+    logger.info("Private key: %s" % client_private_key)
+    logger.info("Public key: %s" % client_public_key)
+    logger.info("GATEWAY LINK PUBLIC KEY: %s" % gateway_link_public_key)
     return (gateway_link_public_key, link_address, client_private_key, forward_port)
