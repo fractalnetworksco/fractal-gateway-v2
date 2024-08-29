@@ -173,7 +173,7 @@ def generate_wireguard_keypair(client: Optional[DockerClient] = None) -> tuple[s
     - tuple[private_key, public_key], a tuple containing the generated private and public keys.
     """
     client = client or docker.from_env()
-    command = "bash -c 'wg genkey | tee /dev/stderr | wg pubkey'"
+    command = "bash -c 'privkey=$(wg genkey); echo $privkey; echo $privkey|wg pubkey'"
 
     keypair: bytes = client.containers.run(
         image=GATEWAY_LINK_IMAGE_TAG,
