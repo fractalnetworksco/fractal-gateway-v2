@@ -390,7 +390,7 @@ class Gateway(Service):
         return Link.objects.get(domain=domain, subdomain=subdomain)
 
     def create_link(self, domain: Domain, subdomain: str, override_link: bool = False) -> Link:
-        with self.as_current_database():
+        with self.as_current_database(threadlocal=True):
             try:
                 link = Link.objects.get(domain=domain, subdomain=subdomain)
                 if not override_link:
