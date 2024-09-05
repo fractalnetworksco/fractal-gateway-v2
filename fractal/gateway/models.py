@@ -426,12 +426,12 @@ class Gateway(Service):
             return link
 
     @classmethod
-    def get_or_create_service(cls, database: "Database") -> "Gateway":
+    def get_or_create_service(cls, database: "Database") -> tuple["Gateway", bool]:
         try:
             gateway = cls.objects.get(parent_db=database)
-            return gateway
+            return gateway, False
         except cls.DoesNotExist:
-            return cls.create_service(database)
+            return cls.create_service(database), True
 
 
 # class MatrixHomeserver(ReplicatedModel):
