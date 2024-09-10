@@ -205,6 +205,10 @@ class Link(ReplicatedModel):
             )
             logger.info("Waiting for result for up to 2 minutes...")
             result = await task.wait_result(timeout=120.0)
+
+            if result.is_err:
+                raise Exception(f"Error when running link up: {result.err}")
+
             gateway_link_public_key, link_address, client_private_key, forward_port = (
                 result.return_value
             )

@@ -65,23 +65,45 @@ def build_gateway_containers() -> None:
     Builds the Gateway and Gateway Link Docker containers.
     """
     client = docker.from_env()
-    logger.info("Building Docker image %s from %s" % (GATEWAY_IMAGE_TAG, GATEWAY_DOCKERFILE_PATH))
-    client.images.build(
-        path=get_gateway_resource_path(GATEWAY_DOCKERFILE_PATH), tag=GATEWAY_IMAGE_TAG
-    )
-    logger.info(
-        "Building Docker image %s from %s"
-        % (GATEWAY_LINK_IMAGE_TAG, GATEWAY_LINK_DOCKERFILE_PATH)
-    )
-    client.images.build(
-        path=get_gateway_resource_path(GATEWAY_LINK_DOCKERFILE_PATH), tag=GATEWAY_LINK_IMAGE_TAG
-    )
-    logger.info(
-        "Building Docker image %s from %s" % (CLIENT_LINK_IMAGE_TAG, CLIENT_LINK_DOCKERFILE_PATH)
-    )
-    client.images.build(
-        path=get_gateway_resource_path(CLIENT_LINK_DOCKERFILE_PATH), tag=CLIENT_LINK_IMAGE_TAG
-    )
+
+    # build gateway image if not exists
+    try:
+        _ = client.images.get(GATEWAY_IMAGE_TAG)
+        logger.info("Image %s already exists. Skipping build." % GATEWAY_IMAGE_TAG)
+    except NotFound:
+        logger.info(
+            "Building Docker image %s from %s" % (GATEWAY_IMAGE_TAG, GATEWAY_DOCKERFILE_PATH)
+        )
+        client.images.build(
+            path=get_gateway_resource_path(GATEWAY_DOCKERFILE_PATH), tag=GATEWAY_IMAGE_TAG
+        )
+
+    # build gateway link image if not exists
+    try:
+        _ = client.images.get(GATEWAY_LINK_IMAGE_TAG)
+        logger.info("Image %s already exists. Skipping build." % GATEWAY_LINK_IMAGE_TAG)
+    except NotFound:
+        logger.info(
+            "Building Docker image %s from %s"
+            % (GATEWAY_LINK_IMAGE_TAG, GATEWAY_LINK_DOCKERFILE_PATH)
+        )
+        client.images.build(
+            path=get_gateway_resource_path(GATEWAY_LINK_DOCKERFILE_PATH),
+            tag=GATEWAY_LINK_IMAGE_TAG,
+        )
+
+    # build client link image if not exists
+    try:
+        _ = client.images.get(CLIENT_LINK_IMAGE_TAG)
+        logger.info("Image %s already exists. Skipping build." % CLIENT_LINK_IMAGE_TAG)
+    except NotFound:
+        logger.info(
+            "Building Docker image %s from %s"
+            % (CLIENT_LINK_IMAGE_TAG, CLIENT_LINK_DOCKERFILE_PATH)
+        )
+        client.images.build(
+            path=get_gateway_resource_path(CLIENT_LINK_DOCKERFILE_PATH), tag=CLIENT_LINK_IMAGE_TAG
+        )
 
 
 def get_port_from_error(err_msg: str) -> int:
@@ -286,6 +308,8 @@ def launch_link(
             raise PortAlreadyAllocatedError(port_number)
         raise err
 
+    logger.info("Successfully launched gateway link container %s" % link_container_name)
+
     # get generated wireguard pubkey from link container
     command = "bash -c 'cat /etc/wireguard/link0.key | wg pubkey'"
     wireguard_pubkey = link_container.exec_run(command).output.decode().strip()
@@ -324,8 +348,14 @@ def generate_link_compose_snippet(
       FORWARD_ONLY: true
       NEW_FORWARDING_BEHAVIOR: true
       CENTER_PORT: 5555
+      LINK_MTU: 1360
     cap_add:
       - NET_ADMIN
+    healthcheck:
+      test: "ping -c 5 10.0.0.1"
+      interval: 10s
+      timeout: 7s
+      retries: 5
     restart: unless-stopped
     extra_hosts:
         host.docker.internal: host-gateway
@@ -344,6 +374,12 @@ def generate_link_compose_snippet(
       GATEWAY_LINK_WG_PUBKEY: {link_config['gateway_link_public_key']}
       GATEWAY_ENDPOINT: {link_config['link_address']}
       TLS_INTERNAL: true
+      LINK_MTU: 1360
+    healthcheck:
+      test: "ping -c 5 10.0.0.1"
+      interval: 10s
+      timeout: 7s
+      retries: 5
     cap_add:
       - NET_ADMIN
     restart: unless-stopped
@@ -362,8 +398,14 @@ def generate_link_compose_snippet(
       GATEWAY_CLIENT_WG_PRIVKEY: {link_config['client_private_key']}
       GATEWAY_LINK_WG_PUBKEY: {link_config['gateway_link_public_key']}
       GATEWAY_ENDPOINT: {link_config['link_address']}
+      LINK_MTU: 1360
     cap_add:
       - NET_ADMIN
+    healthcheck:
+      test: "ping -c 5 10.0.0.1"
+      interval: 10s
+      timeout: 7s
+      retries: 5
     restart: unless-stopped
     volumes:
       - link-data:/data
