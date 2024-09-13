@@ -51,7 +51,6 @@ class Domain(ReplicatedModel):
 
 class Link(ReplicatedModel):
     id = models.UUIDField(primary_key=True, editable=False, default=uuid.uuid4)
-    # gateways = models.ManyToManyField("gateway.Gateway", related_name="links")
     domain = models.ForeignKey(Domain, on_delete=models.CASCADE, related_name="domains")
     service_config = models.ForeignKey(
         "fractal_database.ServiceInstanceConfig",
@@ -258,8 +257,8 @@ class Gateway(Service):
         "GATEWAY_COMPOSE_PATH", f"{GATEWAY_RESOURCE_PATH}/docker-compose.yml"
     )
 
-    # FIXME: MOVE TO DATABASE
-    databases = LocalManyToManyField("fractal_database.Database", related_name="gateways")
+    # # FIXME: MOVE TO DATABASE
+    # databases = LocalManyToManyField("fractal_database.Database", related_name="gateways")
 
     def __str__(self) -> str:
         return f"{self.name} (Gateway)"

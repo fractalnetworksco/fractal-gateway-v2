@@ -83,6 +83,7 @@ async def link_up(
         logger.warning("FIXME: task was called directly, not from matrix. Can't get matrix_id")
 
     client = docker.from_env()
+    logger.info("Gateway is linking up for %s" % link_fqdn)
 
     # ensure that the gateway container exists
     await sync_to_async(get_gateway_container)(client=client)
