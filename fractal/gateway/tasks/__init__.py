@@ -90,6 +90,7 @@ async def link_up(
     # generate link client keypair
     client_private_key, client_public_key = generate_wireguard_keypair(client)
 
+    logger.info("Launching gateway link with fqdn %s", link_fqdn)
     gateway_link_public_key, link_address, forward_port = launch_link(
         link_fqdn,
         client_public_key,

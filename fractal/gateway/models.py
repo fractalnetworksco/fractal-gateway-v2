@@ -203,8 +203,9 @@ class Link(ReplicatedModel):
                 task_labels=task_labels,
                 as_user=True,
             )
-            logger.info("Waiting for result for up to 2 minutes...")
+            logger.info("Waiting for %s link up result for up to 2 minutes..." % self.fqdn)
             result = await task.wait_result(timeout=120.0)
+            logger.info("Link up for %s took %s seconds" % (self.fqdn, result.execution_time))
 
             if result.is_err:
                 raise Exception(f"Error when running link up: {result.err}")
